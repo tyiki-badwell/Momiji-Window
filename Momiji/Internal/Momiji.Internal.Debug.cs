@@ -8,7 +8,6 @@ using Momiji.Core.Window;
 using Momiji.Interop.User32;
 using Advapi32 = Momiji.Interop.Advapi32.NativeMethods;
 using Kernel32 = Momiji.Interop.Kernel32.NativeMethods;
-using Ole32 = Momiji.Interop.Ole32.NativeMethods;
 using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Internal.Debug;

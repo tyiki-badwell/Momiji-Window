@@ -1,5 +1,6 @@
 ﻿using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
+using static Momiji.Interop.Advapi32.NativeMethods;
 
 namespace Momiji.Interop.Advapi32;
 
@@ -8,7 +9,7 @@ internal static class Libraries
     public const string Advapi32 = "Advapi32.dll";
 }
 
-internal static class NativeMethods
+internal static partial class NativeMethods
 {
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode, Pack = 0)]
     internal struct Trustee
@@ -19,7 +20,9 @@ internal static class NativeMethods
         public int trusteeType;
         public nint pSid;
     };
-
+}
+internal static partial class NativeMethods
+{
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode, Pack = 0)]
     internal struct SecurityAttributes
     {
@@ -27,31 +30,39 @@ internal static class NativeMethods
         public nint lpSecurityDescriptor;
         public bool bInheritHandle;
     };
-
-    internal enum SECURITY_DESCRIPTOR_CONST: int
+}
+internal static partial class NativeMethods
+{
+    internal enum SECURITY_DESCRIPTOR_CONST : int
     {
         REVISION = 1,
         MIN_LENGTH = 20
     }
-
-    [DllImport(Libraries.Advapi32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.Advapi32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool InitializeSecurityDescriptor(
-        [In] nint pSecurityDescriptor,
-        [In] SECURITY_DESCRIPTOR_CONST dwRevision
+    internal static partial bool InitializeSecurityDescriptor(
+        nint pSecurityDescriptor,
+        SECURITY_DESCRIPTOR_CONST dwRevision
     );
-
-    [DllImport(Libraries.Advapi32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.Advapi32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool SetSecurityDescriptorDacl(
-        [In] nint pSecurityDescriptor,
-        [In] bool bDaclPresent,
-        [In] nint pDacl,
-        [In] bool bDaclDefaulted
+    internal static partial bool SetSecurityDescriptorDacl(
+        nint pSecurityDescriptor,
+        [MarshalAs(UnmanagedType.Bool)] bool bDaclPresent,
+        nint pDacl,
+        [MarshalAs(UnmanagedType.Bool)] bool bDaclDefaulted
     );
-
+}
+internal static partial class NativeMethods
+{
     internal enum ACCESS_MODE: int
     {
         NOT_USED_ACCESS,
@@ -62,7 +73,9 @@ internal static class NativeMethods
         SET_AUDIT_SUCCESS,
         SET_AUDIT_FAILURE
     }
-
+}
+internal static partial class NativeMethods
+{
     [Flags]
     internal enum ACE : int
     {
@@ -72,7 +85,9 @@ internal static class NativeMethods
         NO_PROPAGATE_INHERIT_ACE = 0x4,
         INHERIT_ONLY_ACE = 0x8
     }
-
+}
+internal static partial class NativeMethods
+{
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode, Pack = 0)]
     internal struct ExplicitAccess
     {
@@ -81,17 +96,20 @@ internal static class NativeMethods
         public ACE grfInheritance;
         public Trustee trustee;
     };
-
-    [DllImport(Libraries.Advapi32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = false)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.Advapi32, SetLastError = false)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern int SetEntriesInAclW(
-        [In] ulong cCountOfExplicitEntries,
-        [In] nint pListOfExplicitEntries,
-        [In] nint oldAcl,
-        [Out] out nint newAcl
+    internal static partial int SetEntriesInAclW(
+        ulong cCountOfExplicitEntries,
+        nint pListOfExplicitEntries,
+        nint oldAcl,
+        out nint newAcl
     );
-
-
+}
+internal static partial class NativeMethods
+{
     internal enum DesiredAccess : uint
     {
         STANDARD_RIGHTS_REQUIRED = 0x000F0000,
@@ -120,16 +138,20 @@ internal static class NativeMethods
             | TOKEN_ADJUST_DEFAULT 
             | TOKEN_ADJUST_SESSIONID
     }
-
-    [DllImport(Libraries.Advapi32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.Advapi32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool OpenProcessToken(
-        [In] nint ProcessHandle,
-        [In] DesiredAccess DesiredAccess,
-        [Out] out HToken TokenHandle
+    internal static partial bool OpenProcessToken(
+        nint ProcessHandle,
+        DesiredAccess DesiredAccess,
+        out HToken TokenHandle
     );
-
+}
+internal static partial class NativeMethods
+{
     internal enum TOKEN_INFORMATION_CLASS : int
     {
         TokenUser = 1,
@@ -182,36 +204,56 @@ internal static class NativeMethods
         TokenIsAppSilo,
         MaxTokenInfoClass
     }
-
-    [DllImport(Libraries.Advapi32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.Advapi32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool GetTokenInformation(
-        [In] this HToken TokenHandle,
-        [In] TOKEN_INFORMATION_CLASS TokenInformationClass,
-        [In] nint TokenInformation,
-        [In] int TokenInformationLength,
-        [Out] out int ReturnLength
+    internal static partial bool GetTokenInformation(
+        HToken TokenHandle,
+        TOKEN_INFORMATION_CLASS TokenInformationClass,
+        nint TokenInformation,
+        int TokenInformationLength,
+        out int ReturnLength
     );
+}
+internal static partial class NativeMethodsExtensions
+{
+    internal static bool GetTokenInformation(
+        this HToken TokenHandle,
+        TOKEN_INFORMATION_CLASS TokenInformationClass,
+        nint TokenInformation,
+        int TokenInformationLength,
+        out int ReturnLength
+    )
+    {
+        return NativeMethods.GetTokenInformation(TokenHandle, TokenInformationClass, TokenInformation, TokenInformationLength, out ReturnLength);
+    }
+}
 
+internal static partial class NativeMethods
+{
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode, Pack = 0)]
     internal struct SidAndAttributes
     {
         public int Sid;
         public int Attributes;
     };
-
-    [DllImport(Libraries.Advapi32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.Advapi32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool LookupAccountSidW(
-        [In] nint lpSystemName,
-        [In] nint Sid,
-        [In] nint Name,
-        [In] nint cchName,
-        [In] nint ReferencedDomainName,
-        [In] nint cchReferencedDomainName,
-        [Out] out int peUse
+    internal static partial bool LookupAccountSidW(
+        nint lpSystemName,
+        nint Sid,
+        nint Name,
+        nint cchName,
+        nint ReferencedDomainName,
+        nint cchReferencedDomainName,
+        out int peUse
     );
 }
 

@@ -32,20 +32,24 @@ internal sealed class HDesktop : SafeHandleZeroOrMinusOneIsInvalid
     }
 }
 
-internal static class NativeMethods
+internal static partial class NativeMethods
 {
     internal enum CWF : uint
     {
         NONE = 0,
         CREATE_ONLY = 0x0001
     }
-
+}
+internal static partial class NativeMethods
+{
     internal enum DF : uint
     {
         NONE = 0,
         ALLOWOTHERACCOUNTHOOK = 0x0001
     }
-
+}
+internal static partial class NativeMethods
+{
     [Flags]
     internal enum WINSTA_ACCESS_MASK : int
     {
@@ -86,7 +90,9 @@ internal static class NativeMethods
 
         WINSTA_ALL_ACCESS = 0x0000037F
     }
-
+}
+internal static partial class NativeMethods
+{
     [Flags]
     internal enum DESKTOP_ACCESS_MASK : int
     {
@@ -125,7 +131,9 @@ internal static class NativeMethods
         DESKTOP_WRITEOBJECTS = 0x00000080,
         DESKTOP_SWITCHDESKTOP = 0x00000100,
     }
-
+}
+internal static partial class NativeMethods
+{
     [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true, CharSet = CharSet.Unicode)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     public static extern HWindowStation CreateWindowStationW(
@@ -134,21 +142,43 @@ internal static class NativeMethods
         [In] WINSTA_ACCESS_MASK dwDesiredAccess, 
         [In] ref Advapi32.NativeMethods.SecurityAttributes lpsa
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool CloseWindowStation(nint hWinSta);
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+    internal static partial bool CloseWindowStation(
+        nint hWinSta
+    );
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool SetProcessWindowStation(this HWindowStation hWinSta);
+    internal static partial bool SetProcessWindowStation(
+        HWindowStation hWinSta
+    );
+}
+internal static partial class NativeMethodsExtensions
+{
+    internal static bool SetProcessWindowStation(
+        this HWindowStation hWinSta
+    )
+    {
+        return NativeMethods.SetProcessWindowStation(hWinSta);
+    }
+}
 
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    public static extern HWindowStation GetProcessWindowStation();
-
+    public static partial HWindowStation GetProcessWindowStation();
+}
+internal static partial class NativeMethods
+{
     [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true, CharSet = CharSet.Unicode)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     internal static extern HDesktop CreateDesktopW(
@@ -159,22 +189,44 @@ internal static class NativeMethods
         [In] DESKTOP_ACCESS_MASK dwDesiredAccess,
         [In] ref Advapi32.NativeMethods.SecurityAttributes lpsa
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool CloseDesktop(nint hDesktop);
-
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+    internal static partial bool CloseDesktop(
+        nint hDesktop
+    );
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool SetThreadDesktop(this HDesktop hDesktop);
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+    internal static partial bool SetThreadDesktop(
+        HDesktop hDesktop
+    );
+}
+internal static partial class NativeMethodsExtensions
+{
+    internal static bool SetThreadDesktop(
+        this HDesktop hDesktop
+    )
+    {
+        return NativeMethods.SetThreadDesktop(hDesktop);
+    }
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern HDesktop GetThreadDesktop(int dwThreadId);
-
+    internal static partial HDesktop GetThreadDesktop(
+        int dwThreadId
+    );
+}
+internal static partial class NativeMethods
+{
     [StructLayout(LayoutKind.Sequential)]
     internal struct WNDCLASSEX
     {
@@ -210,66 +262,82 @@ internal static class NativeMethods
         public nint lpszClassName;
         public nint hIconSm;
     }
-
+}
+internal static partial class NativeMethods
+{
     [UnmanagedFunctionPointer(CallingConvention.Winapi, CharSet = CharSet.Ansi, SetLastError = false)]
     internal delegate nint WNDPROC(nint hWnd, uint msg, nint wParam, nint lParam);
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern ushort RegisterClassExW(
-        [In] ref WNDCLASSEX lpWndClass
+    internal static partial ushort RegisterClassExW(
+        ref WNDCLASSEX lpWndClass
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool UnregisterClassW(
-        [In] nint lpClassName,
-        [In] nint hInstance
-    );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool IsGUIThread(
-        [In] bool bConvert
+    internal static partial bool UnregisterClassW(
+        nint lpClassName,
+        nint hInstance
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern nint DefWindowProcA(
-        [In] nint hWnd,
-        [In] uint msg,
-        [In] nint wParam,
-        [In] nint lParam
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsGUIThread(
+        [MarshalAs(UnmanagedType.Bool)] bool bConvert
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern nint DefWindowProcW(
-        [In] nint hWnd,
-        [In] uint msg,
-        [In] nint wParam,
-        [In] nint lParam
+    internal static partial nint DefWindowProcA(
+        nint hWnd,
+        uint msg,
+        nint wParam,
+        nint lParam
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern nint CreateWindowExW(
-        [In] int dwExStyle,
-        [In] nint lpszClassName,
-        [In] nint lpszWindowName,
-        [In] int style,
-        [In] int x,
-        [In] int y,
-        [In] int width,
-        [In] int height,
-        [In] nint hwndParent,
-        [In] nint hMenu,
-        [In] nint hInst,
-        [In] nint pvParam
+    internal static partial nint DefWindowProcW(
+        nint hWnd,
+        uint msg,
+        nint wParam,
+        nint lParam
     );
-
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    internal static partial nint CreateWindowExW(
+        int dwExStyle,
+        nint lpszClassName,
+        nint lpszWindowName,
+        int style,
+        int x,
+        int y,
+        int width,
+        int height,
+        nint hwndParent,
+        nint hMenu,
+        nint hInst,
+        nint pvParam
+    );
+}
+internal static partial class NativeMethods
+{
     [StructLayout(LayoutKind.Sequential, Pack = 2)]
     internal struct CREATESTRUCT
     {
@@ -286,14 +354,18 @@ internal static class NativeMethods
         public nint lpszClass;
         public int dwExStyle;
     }
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool DestroyWindow(
-        [In] nint hwnd
+    internal static partial bool DestroyWindow(
+        nint hwnd
     );
-
+}
+internal static partial class NativeMethods
+{
     [StructLayout(LayoutKind.Sequential, Pack = 2)]
     internal struct MSG
     {
@@ -310,207 +382,254 @@ internal static class NativeMethods
                 $"hwnd[{hwnd:X}] message[{message:X}] wParam[{wParam:X}] lParam[{lParam:X}] time[{time}] pt[{pt}]";
         }
     }
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool IsWindowUnicode(
-        [In] nint hwnd
+    internal static partial bool IsWindowUnicode(
+        nint hwnd
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern uint GetQueueStatus(
-        [In] uint flags
+    internal static partial uint GetQueueStatus(
+        uint flags
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern uint MsgWaitForMultipleObjectsEx(
-        [In] uint nCount,
-        [In] nint pHandles,
-        [In] uint dwMilliseconds,
-        [In] uint dwWakeMask,
-        [In] uint dwFlags
+    internal static partial uint MsgWaitForMultipleObjectsEx(
+        uint nCount,
+        nint pHandles,
+        uint dwMilliseconds,
+        uint dwWakeMask,
+        uint dwFlags
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern int GetMessageA(
-        [In, Out] ref MSG msg,
-        [In] nint hwnd,
-        [In] int nMsgFilterMin,
-        [In] int nMsgFilterMax
+    internal static partial int GetMessageA(
+        ref MSG msg,
+        nint hwnd,
+        int nMsgFilterMin,
+        int nMsgFilterMax
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern int GetMessageW(
-        [In] ref MSG msg,
-        [In] nint hwnd,
-        [In] int nMsgFilterMin,
-        [In] int nMsgFilterMax
+    internal static partial int GetMessageW(
+        ref MSG msg,
+        nint hwnd,
+        int nMsgFilterMin,
+        int nMsgFilterMax
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool PeekMessageW(
-        [In, Out] ref MSG msg,
-        [In] nint hwnd,
-        [In] int nMsgFilterMin,
-        [In] int nMsgFilterMax,
-        [In] int wRemoveMsg
-    );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool TranslateMessage(
-        [In, Out] ref MSG msg
-    );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern nint DispatchMessageA(
-        [In] ref MSG msg
-    );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern nint DispatchMessageW(
-        [In] ref MSG msg
-    );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool SendNotifyMessageA(
-        [In] nint hWnd,
-        [In] uint nMsg,
-        [In] nint wParam,
-        [In] nint lParam
+    internal static partial bool PeekMessageW(
+        ref MSG msg,
+        nint hwnd,
+        int nMsgFilterMin,
+        int nMsgFilterMax,
+        int wRemoveMsg
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool SendNotifyMessageW(
-        [In] nint hWnd,
-        [In] uint nMsg,
-        [In] nint wParam,
-        [In] nint lParam
+    internal static partial bool TranslateMessage(
+        ref MSG msg
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern nint SendMessageW(
-        [In] nint hWnd,
-        [In] uint nMsg,
-        [In] nint wParam,
-        [In] nint lParam
+    internal static partial nint DispatchMessageA(
+        ref MSG msg
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern nint SetWindowLongPtrA(
-        [In] nint hWnd,
-        [In] int nIndex,
-        [In] nint dwNewLong
+    internal static partial nint DispatchMessageW(
+        ref MSG msg
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern nint SetWindowLongPtrW(
-        [In] nint hWnd,
-        [In] int nIndex,
-        [In] nint dwNewLong
-    );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern nint SetWindowLongA(
-        [In] nint hWnd,
-        [In] int nIndex,
-        [In] nint dwNewLong
-    );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern nint SetWindowLongW(
-        [In] nint hWnd,
-        [In] int nIndex,
-        [In] nint dwNewLong
-    );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern nint CallWindowProcA(
-        [In] nint lpPrevWndFunc,
-        [In] nint hWnd,
-        [In] uint Msg,
-        [In] nint wParam,
-        [In] nint lParam
-    );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern nint CallWindowProcW(
-        [In] nint lpPrevWndFunc,
-        [In] nint hWnd,
-        [In] uint Msg,
-        [In] nint wParam,
-        [In] nint lParam
-    );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern void PostQuitMessage(
-        [In] int nExitCode
-    );
-
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool MoveWindow(
-        [In] nint hWnd,
-        [In] int X,
-        [In] int Y,
-        [In] int nWidth,
-        [In] int nHeight,
-        [In][MarshalAs(UnmanagedType.Bool)] bool bRepaint
+    internal static partial bool SendNotifyMessageA(
+        nint hWnd,
+        uint nMsg,
+        nint wParam,
+        nint lParam
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool SetWindowPos(
-      [In] nint hWnd,
-      [In] nint hWndInsertAfter,
-      [In] int X,
-      [In] int Y,
-      [In] int cx,
-      [In] int cy,
-      [In] uint uFlags
+    internal static partial bool SendNotifyMessageW(
+        nint hWnd,
+        uint nMsg,
+        nint wParam,
+        nint lParam
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    internal static partial nint SendMessageW(
+        nint hWnd,
+        uint nMsg,
+        nint wParam,
+        nint lParam
+    );
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    internal static partial nint SetWindowLongPtrA(
+        nint hWnd,
+        int nIndex,
+        nint dwNewLong
+    );
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    internal static partial nint SetWindowLongPtrW(
+        nint hWnd,
+        int nIndex,
+        nint dwNewLong
+    );
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    internal static partial nint SetWindowLongA(
+        nint hWnd,
+        int nIndex,
+        nint dwNewLong
+    );
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    internal static partial nint SetWindowLongW(
+        nint hWnd,
+        int nIndex,
+        nint dwNewLong
+    );
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    internal static partial nint CallWindowProcA(
+        nint lpPrevWndFunc,
+        nint hWnd,
+        uint Msg,
+        nint wParam,
+        nint lParam
+    );
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    internal static partial nint CallWindowProcW(
+        nint lpPrevWndFunc,
+        nint hWnd,
+        uint Msg,
+        nint wParam,
+        nint lParam
+    );
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    internal static partial void PostQuitMessage(
+        int nExitCode
+    );
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool ShowWindow(
-        [In] nint hWnd,
-        [In] int nCmdShow
+    internal static partial bool MoveWindow(
+        nint hWnd,
+        int X,
+        int Y,
+        int nWidth,
+        int nHeight,
+        [MarshalAs(UnmanagedType.Bool)] bool bRepaint
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool ShowWindowAsync(
-        [In] nint hWnd,
-        [In] int nCmdShow
+    internal static partial bool SetWindowPos(
+      nint hWnd,
+      nint hWndInsertAfter,
+      int X,
+      int Y,
+      int cx,
+      int cy,
+      uint uFlags
     );
-
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ShowWindow(
+        nint hWnd,
+        int nCmdShow
+    );
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ShowWindowAsync(
+        nint hWnd,
+        int nCmdShow
+    );
+}
+internal static partial class NativeMethods
+{
     [StructLayout(LayoutKind.Sequential, Pack = 2)]
     internal struct POINT
     {
@@ -522,8 +641,9 @@ internal static class NativeMethods
                 $"x[{x}] y[{y}]";
         }
     }
-
-
+}
+internal static partial class NativeMethods
+{
     [StructLayout(LayoutKind.Sequential, Pack = 2)]
     internal struct WINDOWPLACEMENT
     {
@@ -547,49 +667,64 @@ internal static class NativeMethods
                 $"formatType[{flags:F}] showCmd[{showCmd:X}] ptMinPosition[{ptMinPosition}] ptMaxPosition[{ptMaxPosition}] rcNormalPosition[{rcNormalPosition}] rcDevice[{rcDevice}]";
         }
     }
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool GetWindowPlacement(
-        [In] nint hWnd,
-        [In, Out] ref WINDOWPLACEMENT lpwndpl
+    internal static partial bool GetWindowPlacement(
+        nint hWnd,
+        ref WINDOWPLACEMENT lpwndpl
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern int InSendMessageEx(
-        [In] nint lpReserved
+    internal static partial int InSendMessageEx(
+        nint lpReserved
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool ReplyMessage(
-        [In] nint lResult
+    internal static partial bool ReplyMessage(
+        nint lResult
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern bool PrintWindow(
-        [In] nint hWnd,
-        [In] nint hDC,
-        [In] int flags
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool PrintWindow(
+        nint hWnd,
+        nint hDC,
+        int flags
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern nint GetDC(
-        [In] nint hWnd
+    internal static partial nint GetDC(
+        nint hWnd
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static extern int ReleaseDC(
-        [In] nint hWnd,
-        [In] nint hDC
+    internal static partial int ReleaseDC(
+        nint hWnd,
+        nint hDC
     );
-
+}
+internal static partial class NativeMethods
+{
     [StructLayout(LayoutKind.Sequential, Pack = 2)]
     internal struct RECT
     {
@@ -603,22 +738,25 @@ internal static class NativeMethods
                 $"left[{left}] top[{top}] right[{right}] bottom[{bottom}]";
         }
     };
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool GetClientRect(
-        [In] nint hWnd,
-        [In] ref RECT lpRect
+    internal static partial bool GetClientRect(
+        nint hWnd,
+        ref RECT lpRect
     );
-
-    [DllImport(Libraries.User32, CallingConvention = CallingConvention.Winapi, ExactSpelling = true, SetLastError = true)]
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool AdjustWindowRect(
-        [In] ref RECT lpRect,
-        [In] int dwStyle,
-        [In][MarshalAs(UnmanagedType.Bool)] bool bMenu
+    internal static partial bool AdjustWindowRect(
+        ref RECT lpRect,
+        int dwStyle,
+        [MarshalAs(UnmanagedType.Bool)] bool bMenu
     );
-
 }
