@@ -23,7 +23,7 @@ internal static partial class NativeMethods
 }
 internal static partial class NativeMethods
 {
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode, Pack = 0)]
+    [StructLayout(LayoutKind.Sequential, Pack = 0)]
     internal struct SecurityAttributes
     {
         public int nLength;

@@ -27,7 +27,7 @@ public class WindowManager : IDisposable, IWindowManager
     private readonly ConcurrentQueue<Action> _queue = new();
     private readonly ManualResetEventSlim _queueEvent = new();
 
-    private readonly ConcurrentDictionary<nint, NativeWindow> _windowMap = new();
+    private readonly ConcurrentDictionary<User32.HWND, NativeWindow> _windowMap = new();
     private readonly ConcurrentDictionary<nint, NativeWindow> _windowHashMap = new();
 
     public WindowManager(
@@ -445,7 +445,7 @@ public class WindowManager : IDisposable, IWindowManager
             _logger.LogWithThreadId(LogLevel.Trace, "PeekMessage", Environment.CurrentManagedThreadId);
             if (!User32.PeekMessageW(
                     ref msg,
-                    nint.Zero,
+                    User32.HWND.None,
                     0,
                     0,
                     0x0001 // PM_REMOVE
@@ -456,7 +456,7 @@ public class WindowManager : IDisposable, IWindowManager
             }
             _logger.LogTrace($"MSG {msg}");
 
-            var IsWindowUnicode = (msg.hwnd != nint.Zero) && User32.IsWindowUnicode(msg.hwnd);
+            var IsWindowUnicode = (msg.hwnd.Handle != User32.HWND.None.Handle) && User32.IsWindowUnicode(msg.hwnd);
             _logger.LogTrace($"IsWindowUnicode {IsWindowUnicode}");
 
             {
@@ -492,9 +492,9 @@ public class WindowManager : IDisposable, IWindowManager
         }
     }
 
-    private nint WndProc(nint hwnd, uint msg, nint wParam, nint lParam)
+    private nint WndProc(User32.HWND hwnd, uint msg, nint wParam, nint lParam)
     {
-        var isWindowUnicode = (hwnd != nint.Zero) && User32.IsWindowUnicode(hwnd);
+        var isWindowUnicode = (hwnd.Handle != User32.HWND.None.Handle) && User32.IsWindowUnicode(hwnd);
         _logger.LogMsgWithThreadId(LogLevel.Trace, "WndProc", hwnd, msg, wParam, lParam, Environment.CurrentManagedThreadId);
 
         switch (msg)
@@ -502,19 +502,23 @@ public class WindowManager : IDisposable, IWindowManager
             case 0x0081://WM_NCCREATE
                 _logger.LogTrace("WM_NCCREATE");
 
+                //TODO NativeWindowの実装と離れているのをなんとかしたい
                 nint windowHashCode;
                 unsafe
                 {
                     var cr = Unsafe.AsRef<User32.CREATESTRUCT>((void*)lParam);
-                    _logger.LogTrace($"CREATESTRUCT {cr.lpCreateParams:X} {cr.hwndParent:X} {cr.cy} {cr.cx} {cr.y} {cr.x} {cr.style:X} {cr.dwExStyle:X}");
+                    _logger.LogTrace($"CREATESTRUCT {cr}");
+
+                    // CreateWindowExW lpParamに、NativeWindowのHashCodeを入れているのを受け取る
                     windowHashCode = cr.lpCreateParams;
                 }
 
                 if (_windowHashMap.TryRemove(windowHashCode, out var window))
                 {
+                    //最速でHWNDを受け取る
                     window._hWindow = hwnd;
                     _windowMap.TryAdd(hwnd, window);
-                    _logger.LogInformation($"add window map [{hwnd:X}]");
+                    _logger.LogInformation($"add window map hwnd:[{hwnd}]");
                 }
                 else
                 {

@@ -202,7 +202,7 @@ public class WindowDebug
                     nint.Zero,
                     User32.DF.NONE,
                     User32.DESKTOP_ACCESS_MASK.GENERIC_ALL,
-                    ref sa
+                    nint.Zero //ref sa
                 );
             logger.LogInformation($"[window debug] CreateDesktopW new:{desktop.DangerousGetHandle():X}");
 

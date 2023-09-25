@@ -16,10 +16,10 @@ internal class NativeWindow : IWindow
     private readonly IWindowManager.OnPreCloseWindow? _onPreCloseWindow;
     private readonly IWindowManager.OnPostPaint? _onPostPaint;
 
-    internal nint _hWindow;
-    public nint Handle => _hWindow;
+    internal User32.HWND _hWindow;
+    public nint Handle => _hWindow.Handle;
 
-    private readonly ConcurrentDictionary<nint, (nint, PinnedDelegate<User32.WNDPROC>)> _oldWndProcMap = new();
+    private readonly ConcurrentDictionary<User32.HWND, (nint, PinnedDelegate<User32.WNDPROC>)> _oldWndProcMap = new();
     internal NativeWindow(
         ILoggerFactory loggerFactory,
         WindowManager windowManager,
@@ -48,7 +48,8 @@ internal class NativeWindow : IWindow
     {
         var thisHashCode = GetHashCode();
 
-        _hWindow = Dispatch(() => {
+        //TODO WM_NCCREATEの中で_hWindowを既に書き込んでいる
+        /*_hWindow =*/ Dispatch(() => {
             var style = unchecked((int)
                 0x80000000 //WS_POPUP
                            // 0x00000000 //WS_OVERLAPPED
@@ -71,14 +72,14 @@ internal class NativeWindow : IWindow
                     CW_USEDEFAULT,
                     CW_USEDEFAULT,
                     CW_USEDEFAULT,
-                    nint.Zero,
+                    User32.HWND.None,
                     nint.Zero,
                     windowClass.HInstance,
                     new nint(thisHashCode)
                 );
             var error = Marshal.GetLastPInvokeError();
             _logger.LogWithHWndAndErrorId(LogLevel.Information, "CreateWindowEx result", hWindow, error);
-            if (hWindow == nint.Zero)
+            if (hWindow.Handle == User32.HWND.None.Handle)
             {
                 hWindow = default;
                 throw new WindowException($"CreateWindowEx failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
@@ -86,11 +87,12 @@ internal class NativeWindow : IWindow
 
             return hWindow;
         });
+        _logger.LogWithHWndAndThreadId(LogLevel.Information, "CreateWindow end", _hWindow, Environment.CurrentManagedThreadId);
     }
 
     public bool Close()
     {
-        _logger.LogInformation($"Close {_hWindow:X}");
+        _logger.LogInformation($"Close {_hWindow}");
         return SendMessage(
             0x0010, //WM_CLOSE
             nint.Zero,
@@ -132,7 +134,7 @@ internal class NativeWindow : IWindow
     {
         return Dispatch(() =>
         {
-            _logger.LogInformation($"MoveWindow {_hWindow:X} {x} {y} {width} {height} {repaint} current {Environment.CurrentManagedThreadId:X}");
+            _logger.LogInformation($"MoveWindow hwnd:[{_hWindow}] x:[{x}] y:[{y}] width:[{width}] height:[{height}] repaint:[{repaint}] / current {Environment.CurrentManagedThreadId:X}");
             var result =
                 User32.MoveWindow(
                     _hWindow,
@@ -157,7 +159,7 @@ internal class NativeWindow : IWindow
     {
         return Dispatch(() =>
         {
-            _logger.LogInformation($"ShowWindow {_hWindow:X} {cmdShow} current {Environment.CurrentManagedThreadId:X}");
+            _logger.LogInformation($"ShowWindow hwnd:[{_hWindow}] cmdShow:[{cmdShow}] / current {Environment.CurrentManagedThreadId:X}");
             var result =
                 User32.ShowWindow(
                     _hWindow,
@@ -167,7 +169,7 @@ internal class NativeWindow : IWindow
             var error = Marshal.GetLastPInvokeError();
 
             //result=0: 実行前は非表示だった/ <>0:実行前から表示されていた
-            _logger.LogInformation($"ShowWindow {_hWindow:X} {result} {error}");
+            _logger.LogInformation($"ShowWindow hwnd:[{_hWindow}] result:[{result}] error:[{error}]");
 
             if (error == 1400) // ERROR_INVALID_WINDOW_HANDLE
             {
@@ -181,7 +183,7 @@ internal class NativeWindow : IWindow
                 };
                 User32.GetWindowPlacement(_hWindow, ref wndpl);
 
-                _logger.LogInformation($"GetWindowPlacement result cmdShow:{cmdShow} -> wndpl:{wndpl}");
+                _logger.LogInformation($"GetWindowPlacement result cmdShow:[{cmdShow}] -> wndpl:[{wndpl}]");
             }
 
             return result;
@@ -227,11 +229,11 @@ internal class NativeWindow : IWindow
                 var width = clientRect.right - clientRect.left;
                 var height = clientRect.bottom - clientRect.top;
 
-                _logger.LogInformation($"SetWindowPos {_hWindow:X} current {Environment.CurrentManagedThreadId:X}");
+                _logger.LogInformation($"SetWindowPos hwnd:[{_hWindow}] / current {Environment.CurrentManagedThreadId:X}");
                 var result =
                     User32.SetWindowPos(
                             _hWindow,
-                            nint.Zero,
+                            User32.HWND.None,
                             0,
                             0,
                             width,
@@ -259,7 +261,7 @@ internal class NativeWindow : IWindow
     )
     {
         Marshal.SetLastPInvokeError(0);
-        _logger.LogInformation($"SetWindowLong {_hWindow:X} {nIndex:X} {dwNewLong:X} current {Environment.CurrentManagedThreadId:X}");
+        _logger.LogInformation($"SetWindowLong hwnd:[{_hWindow}] nIndex:[{nIndex:X}] dwNewLong:[{dwNewLong:X}] / current {Environment.CurrentManagedThreadId:X}");
         var result =
             Environment.Is64BitProcess
                 ? User32.SetWindowLongPtrW(_hWindow, nIndex, dwNewLong)
@@ -310,7 +312,7 @@ internal class NativeWindow : IWindow
                     case 0x0001: //WM_CREATE
                         {
                             _logger.LogTrace($"WM_PARENTNOTIFY WM_CREATE {wParam:X}");
-                            var childHWnd = lParam;
+                            var childHWnd = (User32.HWND)lParam;
                             var isChildeWindowUnicode = (lParam != nint.Zero) && User32.IsWindowUnicode(childHWnd);
                             var subWndProc = new PinnedDelegate<User32.WNDPROC>(new(SubWndProc));
                             var oldWndProc = isChildeWindowUnicode
@@ -328,7 +330,7 @@ internal class NativeWindow : IWindow
                     case 0x0002: //WM_DESTROY
                         {
                             _logger.LogTrace($"WM_PARENTNOTIFY WM_DESTROY {wParam:X}");
-                            var childHWnd = lParam;
+                            var childHWnd = (User32.HWND)lParam;
                             if (_oldWndProcMap.TryRemove(childHWnd, out var pair))
                             {
                                 var isChildeWindowUnicode = (lParam != nint.Zero) && User32.IsWindowUnicode(childHWnd);
@@ -353,11 +355,11 @@ internal class NativeWindow : IWindow
         return nint.Zero;
     }
 
-    private nint SubWndProc(nint hwnd, uint msg, nint wParam, nint lParam)
+    private nint SubWndProc(User32.HWND hwnd, uint msg, nint wParam, nint lParam)
     {
         _logger.LogMsgWithThreadId(LogLevel.Trace, "SubWndProc", hwnd, msg, wParam, lParam, Environment.CurrentManagedThreadId);
 
-        var isWindowUnicode = (hwnd != nint.Zero) && User32.IsWindowUnicode(hwnd);
+        var isWindowUnicode = (hwnd.Handle != User32.HWND.None.Handle) && User32.IsWindowUnicode(hwnd);
         nint result;
 
         if (_oldWndProcMap.TryGetValue(hwnd, out var pair))
@@ -383,7 +385,7 @@ internal class NativeWindow : IWindow
                 _logger.LogTrace("SubWndProc WM_PAINT");
                 try
                 {
-                    _onPostPaint?.Invoke(hwnd);
+                    _onPostPaint?.Invoke(hwnd.Handle);
                 }
                 catch (Exception e)
                 {
