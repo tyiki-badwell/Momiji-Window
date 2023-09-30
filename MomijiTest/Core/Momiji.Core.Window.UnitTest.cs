@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -22,25 +23,53 @@ public class WindowExceptionUnitTest
 }
 
 [TestClass]
-public class WindowUnitTest
+public class WindowUnitTest : IDisposable
 {
-    [TestMethod]
-    public void Test1()
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly ILogger _logger;
+
+    public WindowUnitTest()
     {
-        using var loggerFactory = LoggerFactory.Create(builder =>
+        var configuration = CreateConfiguration();
+
+        _loggerFactory = LoggerFactory.Create(builder =>
         {
-            builder.AddFilter("Momiji", LogLevel.Trace);
+            builder.AddConfiguration(configuration);
+
+            builder.AddFilter("Momiji", LogLevel.Warning);
+            builder.AddFilter("Momiji.Core.Window", LogLevel.Trace);
             builder.AddFilter("Microsoft", LogLevel.Warning);
             builder.AddFilter("System", LogLevel.Warning);
+
             builder.AddConsole();
             builder.AddDebug();
         });
 
-        var logger = loggerFactory.CreateLogger<WindowUnitTest>();
+        _logger = _loggerFactory.CreateLogger<WindowUnitTest>();
+    }
 
+    public void Dispose()
+    {
+        _loggerFactory.Dispose();
+        GC.SuppressFinalize(this);
+    }
+
+    private static IConfiguration CreateConfiguration()
+    {
+        var configuration =
+            new ConfigurationBuilder()
+            .AddJsonFile("appsettings.json")
+            .Build();
+
+        return configuration;
+    }
+
+    [TestMethod]
+    public async Task TestCreateWindow()
+    {
         using var tokenSource = new CancellationTokenSource();
 
-        using var manager = new WindowManager(loggerFactory);
+        await using var manager = new WindowManager(_loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
         var window = manager.CreateWindow();
@@ -50,15 +79,201 @@ public class WindowUnitTest
         window.Move(200, 200, 200, 200, true);
         window.Show(0);
 
+        window.Close();
+
+        try
+        {
+            window.Show(1);
+            Assert.Fail("エラーが起きなかった");
+        }
+        catch (Exception e)
+        {
+            _logger.LogInformation(e, "show failed.");
+        }
+
+        tokenSource.Cancel();
+        await task;
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task TestOnMassage(bool close)
+    {
+        using var tokenSource = new CancellationTokenSource();
+
+        await using var manager = new WindowManager(_loggerFactory);
+        var task = manager.StartAsync(tokenSource.Token);
+
+        var canClose = false;
+
+        var window = manager.CreateWindow(default, (int msg, nint wParam, nint lParam, out bool handled) => {
+            handled = false;
+
+            switch (msg)
+            {
+                case 0x0010://WM_CLOSE
+                    _logger.LogInformation($"WM_CLOSE canClose {canClose}");
+                    if (!canClose)
+                    {
+                        handled = true;
+                    }
+
+                    break;
+            }
+
+            return 0;
+        });
+        window.Show(1);
+
+        //canClose:false
+        window.Close();
+
+        if (close)
+        {
+            canClose = true;
+            window.Close();
+        }
+
+        tokenSource.Cancel();
+        await task;
+    }
+
+    [TestMethod]
+    public async Task TestCreateChildWindow()
+    {
+        using var tokenSource = new CancellationTokenSource();
+
+        await using var manager = new WindowManager(_loggerFactory);
+        var task = manager.StartAsync(tokenSource.Token);
+
+        var window = manager.CreateWindow(default, (int msg, nint wParam, nint lParam, out bool handled) => {
+            handled = false;
+            _logger.LogInformation($"on message {msg:X} {wParam:X} {lParam:X}");
+            return 0;
+        });
+
+        {
+            var child = manager.CreateWindow(window, (int msg, nint wParam, nint lParam, out bool handled) => {
+                handled = false;
+                _logger.LogInformation($"child on message {msg:X} {wParam:X} {lParam:X}");
+                return 0;
+            });
+        }
+
+        tokenSource.Cancel();
+        await task;
+    }
+
+    [TestMethod]
+    public async Task TestSendMessage()
+    {
+        using var tokenSource = new CancellationTokenSource();
+
+        await using var manager = new WindowManager(_loggerFactory);
+        var task = manager.StartAsync(tokenSource.Token);
+
+        var window = manager.CreateWindow(default, (int msg, nint wParam, nint lParam, out bool handled) => {
+            handled = false;
+            if (msg == 0)
+            {
+                _logger.LogInformation($"on message {msg:X} {wParam:X} {lParam:X}");
+            }
+            return 0;
+        });
+
+        {
+            var result = window.SendMessage(0, 1, 2);
+        }
+
+        {
+            var result = window.Dispatch(() => { return window.SendMessage(0, 3, 4); });
+        }
+
+        {
+            async Task a()
+            {
+                var result = window.SendMessage(0, 5, 6);
+                await Task.Delay(0);
+            }
+            await a();
+        }
+
+        tokenSource.Cancel();
+        await task;
+    }
+
+    [TestMethod]
+    public async Task TestPostMessage()
+    {
+        using var tokenSource = new CancellationTokenSource();
+
+        await using var manager = new WindowManager(_loggerFactory);
+        var task = manager.StartAsync(tokenSource.Token);
+
+        var window = manager.CreateWindow(default, (int msg, nint wParam, nint lParam, out bool handled) => {
+            handled = false;
+            if (msg == 0)
+            {
+                _logger.LogInformation($"on message {msg:X} {wParam:X} {lParam:X}");
+            }
+            return 0;
+        });
+
+        {
+            window.PostMessage(0, 1, 2);
+        }
+
+        {
+            var result = window.Dispatch(() => { window.PostMessage(0, 3, 4); return 0; });
+        }
+
+        {
+            async Task a()
+            {
+                window.PostMessage(0, 5, 6);
+                await Task.Delay(0);
+            }
+            await a();
+        }
+
+        tokenSource.Cancel();
+        await task;
+    }
+
+    [TestMethod]
+    public async Task TestSetWindowStyle()
+    {
+        using var tokenSource = new CancellationTokenSource();
+
+        await using var manager = new WindowManager(_loggerFactory);
+        var task = manager.StartAsync(tokenSource.Token);
+
+        var window = manager.CreateWindow();
+
         window.SetWindowStyle(0);
 
         {
-            var result = window.Dispatch(() => { 
+            var result = window.Dispatch(() => {
                 //immidiate mode
-                return window.SetWindowStyle(0); 
+                return window.SetWindowStyle(0);
             });
             Assert.IsTrue(result);
         }
+
+        tokenSource.Cancel();
+        await task;
+    }
+
+    [TestMethod]
+    public async Task TestDIspatch()
+    {
+        using var tokenSource = new CancellationTokenSource();
+
+        await using var manager = new WindowManager(_loggerFactory);
+        var task = manager.StartAsync(tokenSource.Token);
+
+        var window = manager.CreateWindow();
 
         {
             var result = window.Dispatch(() => { return 999; });
@@ -70,25 +285,12 @@ public class WindowUnitTest
                 return window.Dispatch(() =>
                 { //re-entrant
                     return 888;
-                }); 
+                });
             });
             Assert.AreEqual(888, result);
         }
 
-        window.Close();
-
-        try
-        {
-            window.Show(1);
-            Assert.Fail("エラーが起きなかった");
-        }
-        catch (Exception e)
-        {
-            logger.LogInformation(e, "show failed.");
-        }
-
         tokenSource.Cancel();
-        task.Wait();
+        await task;
     }
-
 }

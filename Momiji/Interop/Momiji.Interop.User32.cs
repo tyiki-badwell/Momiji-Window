@@ -261,6 +261,12 @@ internal static partial class NativeMethods
         public nint lpszMenuName;
         public nint lpszClassName;
         public nint hIconSm;
+
+        public readonly override string ToString()
+        {
+            return
+                $"cbSize[{cbSize}] style[{style}] lpfnWndProc[{lpfnWndProc:X}] cbClsExtra[{cbClsExtra}] cbWndExtra[{cbWndExtra}] hInstance[{hInstance:X}] hIcon[{hIcon:X}] hCursor[{hCursor:X}] hbrBackground[{hbrBackground:X}] lpszMenuName[{lpszMenuName:X}] lpszClassName[{lpszClassName:X}] hIconSm[{hIconSm:X}]";
+        }
     }
 }
 internal static partial class NativeMethods
@@ -304,6 +310,7 @@ internal static partial class NativeMethods
         internal nint Handle => handle;
 
         internal static HWND None => default;
+        internal static HWND BROADCAST => new(0xFFFF);
 
         private HWND(nint i)
         {
@@ -397,7 +404,7 @@ internal static partial class NativeMethods
 }
 internal static partial class NativeMethods
 {
-    [StructLayout(LayoutKind.Sequential, Pack = 2)]
+    [StructLayout(LayoutKind.Sequential, Pack = 0)]
     internal struct MSG
     {
         public HWND hwnd;
@@ -542,6 +549,29 @@ internal static partial class NativeMethods
 {
     [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool PostMessageW(
+        HWND hWnd,
+        uint nMsg,
+        nint wParam,
+        nint lParam
+    );
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    internal static partial nint PostThreadMessageW(
+        int idThread,
+        uint nMsg,
+        nint wParam,
+        nint lParam
+    );
+}
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     internal static partial nint SetWindowLongPtrA(
         HWND hWnd,
         int nIndex,
@@ -661,7 +691,7 @@ internal static partial class NativeMethods
 }
 internal static partial class NativeMethods
 {
-    [StructLayout(LayoutKind.Sequential, Pack = 2)]
+    [StructLayout(LayoutKind.Sequential, Pack = 0)]
     internal struct POINT
     {
         public long x;

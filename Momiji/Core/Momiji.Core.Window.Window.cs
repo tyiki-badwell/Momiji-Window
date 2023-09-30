@@ -13,8 +13,7 @@ internal class NativeWindow : IWindow
     private readonly ILogger _logger;
     private readonly WindowManager _windowManager;
 
-    private readonly IWindowManager.OnPreCloseWindow? _onPreCloseWindow;
-    private readonly IWindowManager.OnPostPaint? _onPostPaint;
+    private readonly IWindowManager.OnMessage? _onMessage;
 
     internal User32.HWND _hWindow;
     public nint Handle => _hWindow.Handle;
@@ -23,44 +22,54 @@ internal class NativeWindow : IWindow
     internal NativeWindow(
         ILoggerFactory loggerFactory,
         WindowManager windowManager,
-        IWindowManager.OnPreCloseWindow? onPreCloseWindow = default,
-        IWindowManager.OnPostPaint? onPostPaint = default
+        IWindowManager.OnMessage? onMessage = default
     )
     {
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<NativeWindow>();
         _windowManager = windowManager;
 
-        _onPreCloseWindow = onPreCloseWindow;
-        _onPostPaint = onPostPaint;
+        _onMessage = onMessage;
 
         _logger.LogInformation("Create end");
     }
 
     public T Dispatch<T>(Func<T> item)
     {
-        return _windowManager.Dispatch(item);
+        return _windowManager.DispatchAsync(item).Result;
     }
 
     internal void CreateWindow(
-        WindowClass windowClass
+        WindowClass windowClass,
+        NativeWindow? parent = default
     )
     {
         var thisHashCode = GetHashCode();
+        var parentHWnd = (parent == null) ? User32.HWND.None : parent._hWindow;
 
         //TODO WM_NCCREATEの中で_hWindowを既に書き込んでいる
-        /*_hWindow =*/ Dispatch(() => {
-            var style = unchecked((int)
-                0x80000000 //WS_POPUP
-                           // 0x00000000 //WS_OVERLAPPED
-                           // | 0x00C00000 //WS_CAPTION
-                           // | 0x00080000 //WS_SYSMENU
-                           // | 0x00040000 //WS_THICKFRAME
-                | 0x10000000 //WS_VISIBLE
-                );
+        /*_hWindow =*/ 
+        Dispatch(() => {
+            //TODO パラメーターにする
+            var style = unchecked((int)0x10000000); //WS_VISIBLE
+            if (parentHWnd.Handle == User32.HWND.None.Handle)
+            {
+                //style |= unchecked((int)0x80000000); //WS_POPUP
+                style |= unchecked((int)0x00C00000); //WS_CAPTION
+                style |= unchecked((int)0x00080000); //WS_SYSMENU
+                style |= unchecked((int)0x00040000); //WS_THICKFRAME
+                style |= unchecked((int)0x00020000); //WS_MINIMIZEBOX
+                style |= unchecked((int)0x00010000); //WS_MAXIMIZEBOX
+            }
+            else
+            {
+                style |= unchecked((int)0x40000000); //WS_CHILD
+            }
 
             var CW_USEDEFAULT = unchecked((int)0x80000000);
 
+            //TODO DPI awareness 
+            
             _logger.LogWithThreadId(LogLevel.Trace, "CreateWindowEx", Environment.CurrentManagedThreadId);
             var hWindow =
                 User32.CreateWindowExW(
@@ -72,7 +81,7 @@ internal class NativeWindow : IWindow
                     CW_USEDEFAULT,
                     CW_USEDEFAULT,
                     CW_USEDEFAULT,
-                    User32.HWND.None,
+                    parentHWnd,
                     nint.Zero,
                     windowClass.HInstance,
                     new nint(thisHashCode)
@@ -93,35 +102,66 @@ internal class NativeWindow : IWindow
     public bool Close()
     {
         _logger.LogInformation($"Close {_hWindow}");
-        return SendMessage(
+        SendMessage(
             0x0010, //WM_CLOSE
             nint.Zero,
             nint.Zero
         );
+
+        return true;
     }
 
-    private bool SendMessage(
-        uint nMsg,
+    public nint SendMessage(
+        int nMsg,
         nint wParam,
         nint lParam
     )
     {
-        _logger.LogMsgWithThreadId(LogLevel.Trace, "SendMessageW", _hWindow, nMsg, wParam, lParam, Environment.CurrentManagedThreadId);
-        var _ =
+        //TODO SendMessage/SendNotifyMessage/SendMessageCallback/SendMessageTimeout の使い分け？
+        //違うスレッドから実行しても、PeekMessageの中でWndProcが直接呼ばれるようで、InSendMessageExの判定に移らない様子
+        _logger.LogMsgWithThreadId(LogLevel.Trace, "SendMessageW", _hWindow, (uint)nMsg, wParam, lParam, Environment.CurrentManagedThreadId);
+        var result =
             User32.SendMessageW(
                 _hWindow,
-                nMsg,
+                (uint)nMsg,
                 wParam,
                 lParam
             );
         var error = Marshal.GetLastPInvokeError();
+        _logger.LogTrace($"SendMessageW hwnd:[{_hWindow}] result:[{result}] error:[{error}]");
+
         if (error != 0)
         {
             //UIPIに引っかかると5が返ってくる
-            _logger.LogWithHWndAndErrorId(LogLevel.Error, "SendMessageW", _hWindow, error);
-            return false;
+            throw new WindowException($"SendMessageW failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
         }
-        return true;
+        return result;
+    }
+
+    public void PostMessage(
+        int nMsg,
+        nint wParam,
+        nint lParam
+    )
+    {
+        _logger.LogMsgWithThreadId(LogLevel.Trace, "PostMessageW", _hWindow, (uint)nMsg, wParam, lParam, Environment.CurrentManagedThreadId);
+        var result =
+            User32.PostMessageW(
+                _hWindow,
+                (uint)nMsg,
+                wParam,
+                lParam
+            );
+        var error = Marshal.GetLastPInvokeError();
+        _logger.LogTrace($"PostMessageW hwnd:[{_hWindow}] result:[{result}] error:[{error}]");
+
+        if (!result)
+        {
+            if (error != 0)
+            {
+                throw new WindowException($"PostMessageW failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+            }
+        }
     }
 
     public bool Move(
@@ -196,6 +236,7 @@ internal class NativeWindow : IWindow
     {
         return Dispatch(() =>
         {
+            //TODO DPI対応
             var clientRect = new User32.RECT();
 
             {
@@ -271,6 +312,28 @@ internal class NativeWindow : IWindow
         return (result, error);
     }
 
+    private (nint, int) ChildWindowSetWindowLong(
+        User32.HWND childHWnd,
+        int nIndex,
+        nint dwNewLong
+    )
+    {
+        Marshal.SetLastPInvokeError(0);
+        _logger.LogInformation($"child SetWindowLong hwnd:[{childHWnd}] nIndex:[{nIndex:X}] dwNewLong:[{dwNewLong:X}] / current {Environment.CurrentManagedThreadId:X}");
+
+        var isChildeWindowUnicode = (childHWnd.Handle != User32.HWND.None.Handle) && User32.IsWindowUnicode(childHWnd);
+        var result = isChildeWindowUnicode
+                        ? Environment.Is64BitProcess
+                            ? User32.SetWindowLongPtrW(childHWnd, nIndex, dwNewLong)
+                            : User32.SetWindowLongW(childHWnd, nIndex, dwNewLong)
+                        : Environment.Is64BitProcess
+                            ? User32.SetWindowLongPtrA(childHWnd, nIndex, dwNewLong)
+                            : User32.SetWindowLongA(childHWnd, nIndex, dwNewLong)
+                        ;
+        var error = Marshal.GetLastPInvokeError();
+
+        return (result, error);
+    }
 
     internal nint WndProc(uint msg, nint wParam, nint lParam, out bool handled)
     {
@@ -283,8 +346,23 @@ internal class NativeWindow : IWindow
                 _logger.LogTrace("WM_NCDESTROY");
                 _hWindow = default;
                 break;
+        }
 
+        if (_onMessage != null)
+        {
+            var result = _onMessage.Invoke((int)msg, wParam, lParam, out handled);
+            if (handled)
+            {
+                return result;
+            }
+        }
+
+        switch (msg)
+        {
             case 0x0010://WM_CLOSE
+
+                /*
+                 * TODO _onMessageで実装する
                 _logger.LogTrace("WM_CLOSE");
                 try
                 {
@@ -294,6 +372,7 @@ internal class NativeWindow : IWindow
                 {
                     _logger.LogError(e, "onPreCloseWindow error");
                 }
+                */
                 /*
                 _logger.LogTrace($"DestroyWindow {_hWindow:X} current {Environment.CurrentManagedThreadId:X}");
                 var result = User32.DestroyWindow(_hWindow);
@@ -306,25 +385,23 @@ internal class NativeWindow : IWindow
                 break;
 
             case 0x0210://WM_PARENTNOTIFY
+
+                //TODO _onMessageで実装する
                 _logger.LogTrace("WM_PARENTNOTIFY");
+
+                var GWLP_WNDPROC = -4;
+
                 switch (wParam & 0xFFFF)
                 {
                     case 0x0001: //WM_CREATE
                         {
                             _logger.LogTrace($"WM_PARENTNOTIFY WM_CREATE {wParam:X}");
                             var childHWnd = (User32.HWND)lParam;
-                            var isChildeWindowUnicode = (lParam != nint.Zero) && User32.IsWindowUnicode(childHWnd);
                             var subWndProc = new PinnedDelegate<User32.WNDPROC>(new(SubWndProc));
-                            var oldWndProc = isChildeWindowUnicode
-                                                ? Environment.Is64BitProcess
-                                                    ? User32.SetWindowLongPtrW(childHWnd, -4, subWndProc.FunctionPointer) //GWLP_WNDPROC
-                                                    : User32.SetWindowLongW(childHWnd, -4, subWndProc.FunctionPointer)
-                                                : Environment.Is64BitProcess
-                                                    ? User32.SetWindowLongPtrA(childHWnd, -4, subWndProc.FunctionPointer)
-                                                    : User32.SetWindowLongA(childHWnd, -4, subWndProc.FunctionPointer)
-                                                ;
-                            _oldWndProcMap.TryAdd(childHWnd, (oldWndProc, subWndProc));
 
+                            //TODO クラスにする
+                            var (oldWndProc, result) = ChildWindowSetWindowLong(childHWnd, GWLP_WNDPROC, subWndProc.FunctionPointer);
+                            _oldWndProcMap.TryAdd(childHWnd, (oldWndProc, subWndProc));
                             break;
                         }
                     case 0x0002: //WM_DESTROY
@@ -333,19 +410,9 @@ internal class NativeWindow : IWindow
                             var childHWnd = (User32.HWND)lParam;
                             if (_oldWndProcMap.TryRemove(childHWnd, out var pair))
                             {
-                                var isChildeWindowUnicode = (lParam != nint.Zero) && User32.IsWindowUnicode(childHWnd);
-                                var _ = isChildeWindowUnicode
-                                                ? Environment.Is64BitProcess
-                                                    ? User32.SetWindowLongPtrW(childHWnd, -4, pair.Item1) //GWLP_WNDPROC
-                                                    : User32.SetWindowLongW(childHWnd, -4, pair.Item1)
-                                                : Environment.Is64BitProcess
-                                                    ? User32.SetWindowLongPtrA(childHWnd, -4, pair.Item1)
-                                                    : User32.SetWindowLongA(childHWnd, -4, pair.Item1)
-                                                ;
-
+                                var (_, result) = ChildWindowSetWindowLong(childHWnd, GWLP_WNDPROC, pair.Item1);
                                 pair.Item2.Dispose();
                             }
-
                             break;
                         }
                 }
@@ -382,6 +449,8 @@ internal class NativeWindow : IWindow
         switch (msg)
         {
             case 0x000F://WM_PAINT
+                //TODO _onMessageで実装する
+                /*
                 _logger.LogTrace("SubWndProc WM_PAINT");
                 try
                 {
@@ -391,6 +460,7 @@ internal class NativeWindow : IWindow
                 {
                     _logger.LogError(e, "onPostPaint error");
                 }
+                */
                 break;
 
             default:

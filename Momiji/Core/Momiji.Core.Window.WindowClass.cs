@@ -68,6 +68,7 @@ internal class WindowClass : IDisposable
             _logger.LogInformation("disposing");
         }
 
+        //クローズしていないウインドウが残っていると失敗する
         var result = User32.UnregisterClassW(_windowClass.lpszClassName, _windowClass.hInstance);
         var error = Marshal.GetLastPInvokeError();
         _logger.LogInformation($"UnregisterClass {_windowClass.lpszClassName} {result} [{error} {Marshal.GetPInvokeErrorMessage(error)}]");

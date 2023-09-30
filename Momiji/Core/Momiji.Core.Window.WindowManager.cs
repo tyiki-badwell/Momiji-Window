@@ -10,7 +10,7 @@ using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
-public class WindowManager : IDisposable, IWindowManager
+public class WindowManager : IWindowManager
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -49,7 +49,7 @@ public class WindowManager : IDisposable, IWindowManager
             new WindowClass(
                 _loggerFactory,
                 _wndProc,
-                User32.WNDCLASSEX.CS.OWNDC
+                User32.WNDCLASSEX.CS.OWNDC //TODO パラメーターにする
             );
     }
     ~WindowManager()
@@ -73,24 +73,42 @@ public class WindowManager : IDisposable, IWindowManager
         if (disposing)
         {
             _logger.LogInformation("disposing");
-            try
-            {
-                Cancel();
-            }
-            finally
-            {
-//                _desktop?.Close();
-//                _windowStation?.Close();
-
-                _windowClass.Dispose();
-                _wndProc.Dispose();
-            }
+            DisposeAsyncCore().AsTask().Wait();
         }
 
         _disposed = true;
     }
 
-    public void Cancel()
+    public async ValueTask DisposeAsync()
+    {
+        await DisposeAsyncCore().ConfigureAwait(false);
+
+        Dispose(false);
+
+        GC.SuppressFinalize(this);
+    }
+
+    protected async virtual ValueTask DisposeAsyncCore()
+    {
+        _logger.LogTrace("DisposeAsync start");
+        try
+        {
+            await CancelAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            //クローズしていないウインドウが残っていると失敗する
+            _windowClass.Dispose();
+
+            _wndProc.Dispose();
+
+            //_desktop?.Close();
+            //_windowStation?.Close();
+        }
+        _logger.LogTrace("DisposeAsync end");
+    }
+
+    public async Task CancelAsync()
     {
         var processCancel = _processCancel;
         if (processCancel == null)
@@ -103,7 +121,10 @@ public class WindowManager : IDisposable, IWindowManager
         try
         {
             processCancel.Cancel();
-            task?.Wait();
+            if (task != default)
+            {
+                await task;
+            }
         }
         catch (Exception e)
         {
@@ -111,18 +132,19 @@ public class WindowManager : IDisposable, IWindowManager
         }
     }
 
-    internal T Dispatch<T>(Func<T> item)
+    internal Task<T> DispatchAsync<T>(Func<T> item)
     {
         if (_uiThreadId == Environment.CurrentManagedThreadId)
         {
             _logger.LogTrace("Dispatch called from same thread id then immidiate mode");
-            return item.Invoke();
+            return Task.FromResult(item.Invoke());
         }
 
         var tcs = new TaskCompletionSource<T>(TaskCreationOptions.AttachedToParent);
         Dispatch(() => {
             try
             {
+                //TODO キャンセルできるようにする？
                 tcs.SetResult(item.Invoke());
             }
             catch (Exception e)
@@ -131,11 +153,7 @@ public class WindowManager : IDisposable, IWindowManager
             }
         });
 
-        if (!tcs.Task.Wait(5000, CancellationToken.None))
-        {
-            _logger.LogError("Dispatch timeout");
-        }
-        return tcs.Task.Result;
+        return tcs.Task;
     }
 
 
@@ -152,23 +170,60 @@ public class WindowManager : IDisposable, IWindowManager
     }
 
     public IWindow CreateWindow(
-        IWindowManager.OnPreCloseWindow? onPreCloseWindow = default,
-        IWindowManager.OnPostPaint? onPostPaint = default
+        IWindow? parent = default,
+        IWindowManager.OnMessage? onMessage = default
     )
     {
         var window =
             new NativeWindow(
                 _loggerFactory,
                 this,
-                onPreCloseWindow,
-                onPostPaint
+                onMessage
             );
 
         _windowHashMap.TryAdd(window.GetHashCode(), window);
 
-        window.CreateWindow(_windowClass);
+        window.CreateWindow(_windowClass, parent as NativeWindow);
 
         return window;
+    }
+
+    private void OnWM_NCCREATE(User32.HWND hwnd, nint lParam)
+    {
+        //TODO NativeWindowの実装と離れているのをなんとかしたい
+        nint windowHashCode;
+        unsafe
+        {
+            var cr = Unsafe.AsRef<User32.CREATESTRUCT>((void*)lParam);
+            _logger.LogTrace($"CREATESTRUCT {cr}");
+
+            // CreateWindowExW lpParamに、NativeWindowのHashCodeを入れているのを受け取る
+            windowHashCode = cr.lpCreateParams;
+        }
+
+        if (_windowHashMap.TryRemove(windowHashCode, out var window))
+        {
+            //最速でHWNDを受け取る
+            window._hWindow = hwnd;
+            _windowMap.TryAdd(hwnd, window);
+            _logger.LogInformation($"add window map hwnd:[{hwnd}]");
+        }
+        else
+        {
+            _logger.LogWarning("unkown window handle");
+        }
+    }
+
+    private void OnWM_NCDESTROY(User32.HWND hwnd)
+    {
+        if (_windowMap.TryRemove(hwnd, out var _))
+        {
+            _logger.LogInformation($"remove window map [{hwnd:X}]");
+        }
+        else
+        {
+            _logger.LogWarning($"failed. remove window map [{hwnd:X}]");
+        }
     }
 
     public void CloseAll()
@@ -184,19 +239,6 @@ public class WindowManager : IDisposable, IWindowManager
                 _logger.LogError(e, "close failed.");
             }
         }
-
-/*
-        _windowMap.Values.AsParallel().ForAll(window => {
-            try
-            {
-                window.Close();
-            }
-            catch (Exception e)
-            {
-                _logger.LogError(e, "close failed.");
-            }
-        });
-*/
     }
 
     public async Task StartAsync(CancellationToken stoppingToken)
@@ -224,13 +266,15 @@ public class WindowManager : IDisposable, IWindowManager
 
         _logger.LogWithThreadId(LogLevel.Information, "process task end", Environment.CurrentManagedThreadId);
 
-        Cancel();
+        await CancelAsync().ConfigureAwait(false);
         _logger.LogTrace("cancel end");
 
         _processTask = default;
 
         _processCancel?.Dispose();
         _processCancel = default;
+
+        //TODO スレッドが終わったことの通知は要る？
 
         _logger.LogInformation("stopped.");
     }
@@ -240,14 +284,11 @@ public class WindowManager : IDisposable, IWindowManager
         var tcs = new TaskCompletionSource(TaskCreationOptions.AttachedToParent);
         var thread = new Thread(() =>
         {
-            _logger.LogInformation("thread start");
+            _logger.LogWithThreadId(LogLevel.Information, "*** thread start ***", Environment.CurrentManagedThreadId);
             Exception? error = default; 
             try
             {
-                WindowDebug.CheckIntegrityLevel(_loggerFactory);
-                WindowDebug.CheckDesktop(_loggerFactory);
-                WindowDebug.CheckGetProcessInformation(_loggerFactory);
-
+                SetupMessageLoopThread();
                 MessageLoop();
                 _logger.LogWithThreadId(LogLevel.Information, "message loop normal end", Environment.CurrentManagedThreadId);
             }
@@ -257,6 +298,8 @@ public class WindowManager : IDisposable, IWindowManager
                 _logger.LogError(e, "message loop exception");
                 _processCancel?.Cancel();
             }
+
+            //TODO ここでcloseのチェックをするのは妥当か？ processCancelした直後なのでwindowが残ってそう。DestroyWindowを違うスレッドから呼べるなら、スレッドの外で行うようにする
 
             try
             {
@@ -295,7 +338,7 @@ public class WindowManager : IDisposable, IWindowManager
         })
         {
             IsBackground = false,
-            Name = "UI Thread"
+            Name = "Momiji UI Thread"
         };
 
         thread.SetApartmentState(ApartmentState.STA);
@@ -307,12 +350,11 @@ public class WindowManager : IDisposable, IWindowManager
         return tcs.Task;
     }
 
-    private void MessageLoop()
+    private void SetupMessageLoopThread()
     {
-        if (_processCancel == null)
-        {
-            throw new InvalidOperationException($"{nameof(_processCancel)} is null.");
-        }
+        WindowDebug.CheckIntegrityLevel(_loggerFactory);
+        WindowDebug.CheckDesktop(_loggerFactory);
+        WindowDebug.CheckGetProcessInformation(_loggerFactory);
 
         {
             var result = User32.IsGUIThread(true);
@@ -324,7 +366,7 @@ public class WindowManager : IDisposable, IWindowManager
         }
 
         { //メッセージキューが無ければ作られるハズ
-            var result = 
+            var result =
                 User32.GetQueueStatus(
                     0x04FF //QS_ALLINPUT
                 );
@@ -341,16 +383,24 @@ public class WindowManager : IDisposable, IWindowManager
             var error = Marshal.GetLastPInvokeError();
             _logger.LogInformation($"GetStartupInfoW [{si.dwFlags}][{si.wShowWindow}] [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
         }
+    }
+
+    private void MessageLoop()
+    {
+        if (_processCancel == null)
+        {
+            throw new InvalidOperationException($"{nameof(_processCancel)} is null.");
+        }
 
         var forceCancel = false;
         var cancelled = false;
 
         var ct = _processCancel.Token;
 
-        using var waitHandlesPin = new PinnedBuffer<nint[]>(new nint[] {
+        using var waitHandlesPin = new PinnedBuffer<nint[]>([
             _queueEvent.WaitHandle.SafeWaitHandle.DangerousGetHandle(),
             ct.WaitHandle.SafeWaitHandle.DangerousGetHandle()
-         });
+        ]);
         var handleCount = waitHandlesPin.Target.Length;
 
         _logger.LogWithThreadId(LogLevel.Information, "start message loop", Environment.CurrentManagedThreadId);
@@ -387,6 +437,8 @@ public class WindowManager : IDisposable, IWindowManager
             }
 
             {
+                //TODO 同時にシグナル状態になっていても１コずつ返るんだっけ？
+
                 _logger.LogWithThreadId(LogLevel.Trace, "MsgWaitForMultipleObjectsEx", Environment.CurrentManagedThreadId);
                 var res =
                     User32.MsgWaitForMultipleObjectsEx(
@@ -403,9 +455,14 @@ public class WindowManager : IDisposable, IWindowManager
                 }
                 else if (res == 0) // WAIT_OBJECT_0
                 {
-                    _logger.LogTrace("MsgWaitForMultipleObjectsEx comes queue event.");
+                    //タスクキューのディスパッチ
+                    //TODO RTWQなどに置き換えできる？
+
+                    //TODO _queueEventもシグナル状態になりっぱなしになる現象がある
+
+                    _logger.LogTrace($"MsgWaitForMultipleObjectsEx comes queue event. {_queue.Count}");
                     _queueEvent.Reset();
-                    //ディスパッチ
+
                     while (_queue.TryDequeue(out var result))
                     {
                         _logger.LogWithThreadId(LogLevel.Trace, "Invoke", Environment.CurrentManagedThreadId);
@@ -415,6 +472,7 @@ public class WindowManager : IDisposable, IWindowManager
                 }
                 else if (res == 1) // WAIT_OBJECT_0+1
                 {
+                    //キャンセル通知
                     _logger.LogTrace("MsgWaitForMultipleObjectsEx comes cancel event.");
                     //ctがシグナル状態になりっぱなしになるので、リストから外す
                     handleCount--;
@@ -422,12 +480,14 @@ public class WindowManager : IDisposable, IWindowManager
                 }
                 else if (res == handleCount) // WAIT_OBJECT_0+2
                 {
-                    _logger.LogTrace("MsgWaitForMultipleObjectsEx comes message.");
+                    //ウインドウメッセージキューのディスパッチ
+                    _logger.LogTrace("MsgWaitForMultipleObjectsEx comes window message.");
                     DispatchMessage();
                     continue;
                 }
                 else
                 {
+                    //エラー
                     var error = Marshal.GetLastPInvokeError();
                     throw new WindowException($"MsgWaitForMultipleObjectsEx failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
                 }
@@ -456,22 +516,24 @@ public class WindowManager : IDisposable, IWindowManager
             }
             _logger.LogTrace($"MSG {msg}");
 
-            var IsWindowUnicode = (msg.hwnd.Handle != User32.HWND.None.Handle) && User32.IsWindowUnicode(msg.hwnd);
-            _logger.LogTrace($"IsWindowUnicode {IsWindowUnicode}");
-
             {
                 var ret = User32.InSendMessageEx(nint.Zero);
                 _logger.LogTrace($"InSendMessageEx {ret:X}");
                 if ((ret & (0x00000008 | 0x00000001)) == 0x00000001) //ISMEX_SEND
                 {
                     _logger.LogTrace("ISMEX_SEND");
-                    var ret2 = User32.ReplyMessage(new nint(1));
+                    var ret2 = User32.ReplyMessage(new nint(1)); //TODO 適当に１を返してる
                     var error = Marshal.GetLastPInvokeError();
                     _logger.LogTrace($"ReplyMessage {ret2} [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
                 }
             }
 
-            //TODO: msg.hwnd がnullのときは、↓以降を行っても意味はないらしい？
+            if (msg.hwnd.Handle == User32.HWND.None.Handle)
+            {
+                _logger.LogTrace("hwnd is none");
+            }
+
+            //TODO: msg.hwnd がnullのとき(= thread宛メッセージ)は、↓以降はバイパスした方がよい？
 
             {
                 _logger.LogTrace("TranslateMessage");
@@ -481,6 +543,9 @@ public class WindowManager : IDisposable, IWindowManager
             }
 
             {
+                var IsWindowUnicode = (msg.hwnd.Handle != User32.HWND.None.Handle) && User32.IsWindowUnicode(msg.hwnd);
+                _logger.LogTrace($"IsWindowUnicode {IsWindowUnicode}");
+
                 _logger.LogTrace("DispatchMessage");
                 var ret = IsWindowUnicode
                             ? User32.DispatchMessageW(ref msg)
@@ -494,70 +559,32 @@ public class WindowManager : IDisposable, IWindowManager
 
     private nint WndProc(User32.HWND hwnd, uint msg, nint wParam, nint lParam)
     {
-        var isWindowUnicode = (hwnd.Handle != User32.HWND.None.Handle) && User32.IsWindowUnicode(hwnd);
         _logger.LogMsgWithThreadId(LogLevel.Trace, "WndProc", hwnd, msg, wParam, lParam, Environment.CurrentManagedThreadId);
 
-        switch (msg)
         {
-            case 0x0081://WM_NCCREATE
-                _logger.LogTrace("WM_NCCREATE");
-
-                //TODO NativeWindowの実装と離れているのをなんとかしたい
-                nint windowHashCode;
-                unsafe
-                {
-                    var cr = Unsafe.AsRef<User32.CREATESTRUCT>((void*)lParam);
-                    _logger.LogTrace($"CREATESTRUCT {cr}");
-
-                    // CreateWindowExW lpParamに、NativeWindowのHashCodeを入れているのを受け取る
-                    windowHashCode = cr.lpCreateParams;
-                }
-
-                if (_windowHashMap.TryRemove(windowHashCode, out var window))
-                {
-                    //最速でHWNDを受け取る
-                    window._hWindow = hwnd;
-                    _windowMap.TryAdd(hwnd, window);
-                    _logger.LogInformation($"add window map hwnd:[{hwnd}]");
-                }
-                else
-                {
-                    _logger.LogWarning("unkown window handle");
-                }
-                break;
-        }
-
-        {
-            if (_windowMap.TryGetValue(hwnd, out var window))
+            var result = WndProcBefore(hwnd, msg, wParam, lParam, out var handled);
+            if (handled)
             {
-                //ウインドウに流す
-                var result = window.WndProc(msg, wParam, lParam, out var handled);
-                if (handled)
-                {
-                    return result;
-                }
-            }
-            else
-            {
-                _logger.LogTrace("unkown window handle");
+                return result;
             }
         }
 
-        switch (msg)
+        if (_windowMap.TryGetValue(hwnd, out var window))
         {
-            case 0x0082://WM_NCDESTROY
-                _logger.LogTrace("WM_NCDESTROY");
-                if (_windowMap.TryRemove(hwnd, out _))
-                {
-                    _logger.LogInformation($"remove window map [{hwnd:X}]");
-                }
-                else
-                {
-                    _logger.LogWarning($"failed. remove window map [{hwnd:X}]");
-                }
-                break;
+            //ウインドウに流す
+            var result = window.WndProc(msg, wParam, lParam, out var handled);
+            if (handled)
+            {
+                _logger.LogTrace($"handled msg:{msg:X} result:{result}");
+                return result;
+            }
+        }
+        else
+        {
+            _logger.LogTrace("unkown window handle");
         }
 
+        var isWindowUnicode = (hwnd.Handle != User32.HWND.None.Handle) && User32.IsWindowUnicode(hwnd);
         var defWndProcResult = isWindowUnicode
             ? User32.DefWindowProcW(hwnd, msg, wParam, lParam)
             : User32.DefWindowProcA(hwnd, msg, wParam, lParam)
@@ -565,6 +592,46 @@ public class WindowManager : IDisposable, IWindowManager
 
         _logger.LogTrace($"DefWindowProc [{defWndProcResult:X}]");
         return defWndProcResult;
+    }
+
+    private nint WndProcBefore(User32.HWND hwnd, uint msg, nint wParam, nint lParam, out bool handled)
+    {
+        handled = false;
+        var result = nint.Zero;
+
+        switch (msg)
+        {
+            case 0x0018://WM_SHOWWINDOW
+                _logger.LogTrace($"WM_SHOWWINDOW {wParam:X} {lParam:X}");
+                break;
+
+            case 0x001C://WM_ACTIVATEAPP
+                _logger.LogTrace($"WM_ACTIVATEAPP {wParam:X} {lParam:X}");
+                break;
+
+            case 0x0046://WM_WINDOWPOSCHANGING
+                _logger.LogTrace("WM_WINDOWPOSCHANGING");
+                break;
+
+            case 0x0081://WM_NCCREATE
+                _logger.LogTrace("WM_NCCREATE");
+                OnWM_NCCREATE(hwnd, lParam);
+                handled = true;
+                result = 1;
+                break;
+
+            case 0x0082://WM_NCDESTROY
+                _logger.LogTrace("WM_NCDESTROY");
+                OnWM_NCDESTROY(hwnd);
+                handled = true;
+                break;
+
+            case 0x0083://WM_NCCALCSIZE
+                _logger.LogTrace("WM_NCCALCSIZE");
+                break;
+        }
+
+        return result;
     }
 
 }

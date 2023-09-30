@@ -47,17 +47,16 @@ internal class WindowSecurity : ObjectSecurity<User32.DESKTOP_ACCESS_MASK>
     }
 }
 
-public interface IWindowManager : IDisposable
+public interface IWindowManager : IDisposable, IAsyncDisposable
 {
     Task StartAsync(CancellationToken stoppingToken);
-    void Cancel();
+    Task CancelAsync();
 
-    public delegate void OnPreCloseWindow();
-    public delegate void OnPostPaint(nint hWindow);
+    public delegate nint OnMessage(int msg, nint wParam, nint lParam, out bool handled);
 
     public IWindow CreateWindow(
-        OnPreCloseWindow? onPreCloseWindow = default,
-        OnPostPaint? onPostPaint = default
+        IWindow? parent = default,
+        OnMessage? onMessage = default
     );
 
     void CloseAll();
@@ -65,6 +64,7 @@ public interface IWindowManager : IDisposable
 
 public interface IWindow
 {
+
     nint Handle
     {
         get;
@@ -85,5 +85,17 @@ public interface IWindow
 
     bool SetWindowStyle(
         int style
+    );
+
+    nint SendMessage(
+        int nMsg,
+        nint wParam,
+        nint lParam
+    );
+
+    void PostMessage(
+        int nMsg,
+        nint wParam,
+        nint lParam
     );
 }
