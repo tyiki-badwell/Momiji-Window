@@ -289,7 +289,7 @@ public class WindowManager : IWindowManager
             try
             {
                 SetupMessageLoopThread();
-                MessageLoop();
+                RunMessageLoop();
                 _logger.LogWithThreadId(LogLevel.Information, "message loop normal end", Environment.CurrentManagedThreadId);
             }
             catch (Exception e)
@@ -299,7 +299,8 @@ public class WindowManager : IWindowManager
                 _processCancel?.Cancel();
             }
 
-            //TODO ここでcloseのチェックをするのは妥当か？ processCancelした直後なのでwindowが残ってそう。DestroyWindowを違うスレッドから呼べるなら、スレッドの外で行うようにする
+            //TODO ここでcloseのチェックをするのは妥当か？ processCancelした直後なのでwindowが残ってそう。
+            //CreateWindowしたスレッドでないとDestroyWindowを呼べない
 
             try
             {
@@ -385,7 +386,7 @@ public class WindowManager : IWindowManager
         }
     }
 
-    private void MessageLoop()
+    private void RunMessageLoop()
     {
         if (_processCancel == null)
         {
@@ -453,12 +454,17 @@ public class WindowManager : IWindowManager
                     _logger.LogTrace("MsgWaitForMultipleObjectsEx timeout.");
                     continue;
                 }
+                else if (res == handleCount) // WAIT_OBJECT_0+2
+                {
+                    //ウインドウメッセージキューのディスパッチ
+                    _logger.LogTrace("MsgWaitForMultipleObjectsEx comes window message.");
+                    DispatchMessage();
+                    continue;
+                }
                 else if (res == 0) // WAIT_OBJECT_0
                 {
                     //タスクキューのディスパッチ
                     //TODO RTWQなどに置き換えできる？
-
-                    //TODO _queueEventもシグナル状態になりっぱなしになる現象がある
 
                     _logger.LogTrace($"MsgWaitForMultipleObjectsEx comes queue event. {_queue.Count}");
                     _queueEvent.Reset();
@@ -476,13 +482,6 @@ public class WindowManager : IWindowManager
                     _logger.LogTrace("MsgWaitForMultipleObjectsEx comes cancel event.");
                     //ctがシグナル状態になりっぱなしになるので、リストから外す
                     handleCount--;
-                    continue;
-                }
-                else if (res == handleCount) // WAIT_OBJECT_0+2
-                {
-                    //ウインドウメッセージキューのディスパッチ
-                    _logger.LogTrace("MsgWaitForMultipleObjectsEx comes window message.");
-                    DispatchMessage();
                     continue;
                 }
                 else

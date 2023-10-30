@@ -47,8 +47,7 @@ internal class NativeWindow : IWindow
         var thisHashCode = GetHashCode();
         var parentHWnd = (parent == null) ? User32.HWND.None : parent._hWindow;
 
-        //TODO WM_NCCREATEの中で_hWindowを既に書き込んでいる
-        /*_hWindow =*/ 
+        // メッセージループに移行してからCreateWindowする
         Dispatch(() => {
             //TODO パラメーターにする
             var style = unchecked((int)0x10000000); //WS_VISIBLE
