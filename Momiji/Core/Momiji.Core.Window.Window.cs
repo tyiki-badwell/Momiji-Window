@@ -25,18 +25,18 @@ internal class NativeWindow : IWindow
         IWindowManager.OnMessage? onMessage = default
     )
     {
+        //TODO UIAutomation
+
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<NativeWindow>();
         _windowManager = windowManager;
 
         _onMessage = onMessage;
-
-        _logger.LogInformation("Create end");
     }
 
-    public T Dispatch<T>(Func<T> item)
+    public Task<T> DispatchAsync<T>(Func<T> item)
     {
-        return _windowManager.DispatchAsync(item).Result;
+        return _windowManager.DispatchAsync(this, item);
     }
 
     internal void CreateWindow(
@@ -44,11 +44,10 @@ internal class NativeWindow : IWindow
         NativeWindow? parent = default
     )
     {
-        var thisHashCode = GetHashCode();
         var parentHWnd = (parent == null) ? User32.HWND.None : parent._hWindow;
 
         // メッセージループに移行してからCreateWindowする
-        Dispatch(() => {
+        var task = DispatchAsync(() => {
             //TODO パラメーターにする
             var style = unchecked((int)0x10000000); //WS_VISIBLE
             if (parentHWnd.Handle == User32.HWND.None.Handle)
@@ -73,17 +72,17 @@ internal class NativeWindow : IWindow
             var hWindow =
                 User32.CreateWindowExW(
                     0,
-                    windowClass.ClassName,
-                    nint.Zero,
+                    windowClass.ClassName, //TODO システムクラスも指定できるようにする
+                    nint.Zero, //TODO ウインドウタイトル
                     style,
                     CW_USEDEFAULT,
                     CW_USEDEFAULT,
                     CW_USEDEFAULT,
                     CW_USEDEFAULT,
                     parentHWnd,
-                    nint.Zero,
+                    nint.Zero, //TODO メニューハンドル / 子ウインドウ識別子
                     windowClass.HInstance,
-                    new nint(thisHashCode)
+                    nint.Zero
                 );
             var error = Marshal.GetLastPInvokeError();
             _logger.LogWithHWndAndErrorId(LogLevel.Information, "CreateWindowEx result", hWindow, error);
@@ -95,6 +94,7 @@ internal class NativeWindow : IWindow
 
             return hWindow;
         });
+        var handle = task.Result;
         _logger.LogWithHWndAndThreadId(LogLevel.Information, "CreateWindow end", _hWindow, Environment.CurrentManagedThreadId);
     }
 
@@ -117,7 +117,6 @@ internal class NativeWindow : IWindow
     )
     {
         //TODO SendMessage/SendNotifyMessage/SendMessageCallback/SendMessageTimeout の使い分け？
-        //違うスレッドから実行しても、PeekMessageの中でWndProcが直接呼ばれるようで、InSendMessageExの判定に移らない様子
         _logger.LogMsgWithThreadId(LogLevel.Trace, "SendMessageW", _hWindow, (uint)nMsg, wParam, lParam, Environment.CurrentManagedThreadId);
         var result =
             User32.SendMessageW(
@@ -171,7 +170,7 @@ internal class NativeWindow : IWindow
         bool repaint
     )
     {
-        return Dispatch(() =>
+        return DispatchAsync(() =>
         {
             _logger.LogInformation($"MoveWindow hwnd:[{_hWindow}] x:[{x}] y:[{y}] width:[{width}] height:[{height}] repaint:[{repaint}] / current {Environment.CurrentManagedThreadId:X}");
             var result =
@@ -189,14 +188,14 @@ internal class NativeWindow : IWindow
                 _logger.LogWithHWndAndErrorId(LogLevel.Error, "MoveWindow", _hWindow, Marshal.GetLastPInvokeError());
             }
             return result;
-        });
+        }).Result;
     }
 
     public bool Show(
         int cmdShow
     )
     {
-        return Dispatch(() =>
+        return DispatchAsync(() =>
         {
             _logger.LogInformation($"ShowWindow hwnd:[{_hWindow}] cmdShow:[{cmdShow}] / current {Environment.CurrentManagedThreadId:X}");
             var result =
@@ -226,14 +225,14 @@ internal class NativeWindow : IWindow
             }
 
             return result;
-        });
+        }).Result;
     }
 
     public bool SetWindowStyle(
         int style
     )
     {
-        return Dispatch(() =>
+        return DispatchAsync(() =>
         {
             //TODO DPI対応
             var clientRect = new User32.RECT();
@@ -292,7 +291,7 @@ internal class NativeWindow : IWindow
             }
 
             return true;
-        });
+        }).Result;
     }
 
     private (nint, int) SetWindowLong(
@@ -349,7 +348,7 @@ internal class NativeWindow : IWindow
 
         if (_onMessage != null)
         {
-            var result = _onMessage.Invoke((int)msg, wParam, lParam, out handled);
+            var result = _onMessage.Invoke(this, (int)msg, wParam, lParam, out handled);
             if (handled)
             {
                 return result;

@@ -107,7 +107,7 @@ public class WindowUnitTest : IDisposable
 
         var canClose = false;
 
-        var window = manager.CreateWindow(default, (int msg, nint wParam, nint lParam, out bool handled) => {
+        var window = manager.CreateWindow(default, (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
             handled = false;
 
             switch (msg)
@@ -147,19 +147,21 @@ public class WindowUnitTest : IDisposable
         await using var manager = new WindowManager(_loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
-        var window = manager.CreateWindow(default, (int msg, nint wParam, nint lParam, out bool handled) => {
+        var window = manager.CreateWindow(default, (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
             handled = false;
             _logger.LogInformation($"on message {msg:X} {wParam:X} {lParam:X}");
+
+            if (msg == 0x0001) //WM_CREATE
+            {
+                var child = manager.CreateWindow(sender, (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
+                    handled = false;
+                    _logger.LogInformation($"child on message {msg:X} {wParam:X} {lParam:X}");
+                    return 0;
+                });
+            }
+
             return 0;
         });
-
-        {
-            var child = manager.CreateWindow(window, (int msg, nint wParam, nint lParam, out bool handled) => {
-                handled = false;
-                _logger.LogInformation($"child on message {msg:X} {wParam:X} {lParam:X}");
-                return 0;
-            });
-        }
 
         tokenSource.Cancel();
         await task;
@@ -173,30 +175,37 @@ public class WindowUnitTest : IDisposable
         await using var manager = new WindowManager(_loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
-        var window = manager.CreateWindow(default, (int msg, nint wParam, nint lParam, out bool handled) => {
+        var window = manager.CreateWindow(default, (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
             handled = false;
             if (msg == 0)
             {
                 _logger.LogInformation($"on message {msg:X} {wParam:X} {lParam:X}");
+                handled = true;
+                return 2;
             }
             return 0;
         });
 
         {
             var result = window.SendMessage(0, 1, 2);
+            //TODO ISMEX_SEND‚É•Ô‚·’l‚ğw’è‚Å‚«‚é‚æ‚¤‚É‚·‚éH
+            _logger.LogInformation($"SendMessage result {result}");
         }
 
         {
-            var result = window.Dispatch(() => { return window.SendMessage(0, 3, 4); });
+            var result = await window.DispatchAsync(() => { return window.SendMessage(0, 3, 4); });
+            _logger.LogInformation($"SendMessage result {result}");
         }
 
         {
-            async Task a()
+            async Task<nint> a()
             {
                 var result = window.SendMessage(0, 5, 6);
                 await Task.Delay(0);
+                return result;
             }
-            await a();
+            var result = await a();
+            _logger.LogInformation($"SendMessage result {result}");
         }
 
         tokenSource.Cancel();
@@ -211,7 +220,7 @@ public class WindowUnitTest : IDisposable
         await using var manager = new WindowManager(_loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
-        var window = manager.CreateWindow(default, (int msg, nint wParam, nint lParam, out bool handled) => {
+        var window = manager.CreateWindow(default, (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
             handled = false;
             if (msg == 0)
             {
@@ -225,7 +234,7 @@ public class WindowUnitTest : IDisposable
         }
 
         {
-            var result = window.Dispatch(() => { window.PostMessage(0, 3, 4); return 0; });
+            var result = await window.DispatchAsync(() => { window.PostMessage(0, 3, 4); return 0; });
         }
 
         {
@@ -254,7 +263,7 @@ public class WindowUnitTest : IDisposable
         window.SetWindowStyle(0);
 
         {
-            var result = window.Dispatch(() => {
+            var result = await window.DispatchAsync(() => {
                 //immidiate mode
                 return window.SetWindowStyle(0);
             });
@@ -276,13 +285,13 @@ public class WindowUnitTest : IDisposable
         var window = manager.CreateWindow();
 
         {
-            var result = window.Dispatch(() => { return 999; });
+            var result = await window.DispatchAsync(() => { return 999; });
             Assert.AreEqual(999, result);
         }
 
         {
-            var result = window.Dispatch(() => {
-                return window.Dispatch(() =>
+            var result = await await window.DispatchAsync(async () => {
+                return await window.DispatchAsync(() =>
                 { //re-entrant
                     return 888;
                 });

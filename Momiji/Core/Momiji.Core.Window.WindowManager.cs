@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
-using System.Runtime.CompilerServices;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using Momiji.Core.Buffer;
@@ -28,7 +29,7 @@ public class WindowManager : IWindowManager
     private readonly ManualResetEventSlim _queueEvent = new();
 
     private readonly ConcurrentDictionary<User32.HWND, NativeWindow> _windowMap = new();
-    private readonly ConcurrentDictionary<nint, NativeWindow> _windowHashMap = new();
+    private readonly Stack<NativeWindow> _windowStack = new();
 
     public WindowManager(
 //        IConfiguration configuration,
@@ -132,12 +133,28 @@ public class WindowManager : IWindowManager
         }
     }
 
-    internal Task<T> DispatchAsync<T>(Func<T> item)
+    internal Task<T> DispatchAsync<T>(NativeWindow window, Func<T> item)
     {
+        T func()
+        {
+            //TODO スレッドセーフになっているか要確認(再入してたらダメ)
+            _windowStack.Push(window);
+            try
+            {
+                var result = item.Invoke();
+                return result;
+            }
+            finally
+            {
+                var result = _windowStack.Pop();
+                Debug.Assert(result == window);
+            }
+        }
+
         if (_uiThreadId == Environment.CurrentManagedThreadId)
         {
             _logger.LogTrace("Dispatch called from same thread id then immidiate mode");
-            return Task.FromResult(item.Invoke());
+            return Task.FromResult(func());
         }
 
         var tcs = new TaskCompletionSource<T>(TaskCreationOptions.AttachedToParent);
@@ -145,7 +162,7 @@ public class WindowManager : IWindowManager
             try
             {
                 //TODO キャンセルできるようにする？
-                tcs.SetResult(item.Invoke());
+                tcs.SetResult(func());
             }
             catch (Exception e)
             {
@@ -181,37 +198,9 @@ public class WindowManager : IWindowManager
                 onMessage
             );
 
-        _windowHashMap.TryAdd(window.GetHashCode(), window);
-
         window.CreateWindow(_windowClass, parent as NativeWindow);
 
         return window;
-    }
-
-    private void OnWM_NCCREATE(User32.HWND hwnd, nint lParam)
-    {
-        //TODO NativeWindowの実装と離れているのをなんとかしたい
-        nint windowHashCode;
-        unsafe
-        {
-            var cr = Unsafe.AsRef<User32.CREATESTRUCT>((void*)lParam);
-            _logger.LogTrace($"CREATESTRUCT {cr}");
-
-            // CreateWindowExW lpParamに、NativeWindowのHashCodeを入れているのを受け取る
-            windowHashCode = cr.lpCreateParams;
-        }
-
-        if (_windowHashMap.TryRemove(windowHashCode, out var window))
-        {
-            //最速でHWNDを受け取る
-            window._hWindow = hwnd;
-            _windowMap.TryAdd(hwnd, window);
-            _logger.LogInformation($"add window map hwnd:[{hwnd}]");
-        }
-        else
-        {
-            _logger.LogWarning("unkown window handle");
-        }
     }
 
     private void OnWM_NCDESTROY(User32.HWND hwnd)
@@ -232,6 +221,7 @@ public class WindowManager : IWindowManager
         {
             try
             {
+                //TODO 親ウインドウにだけ実行する(子ウインドウのcloseで1400になる)
                 window.Close();
             }
             catch (Exception e)
@@ -342,6 +332,7 @@ public class WindowManager : IWindowManager
             Name = "Momiji UI Thread"
         };
 
+        //TODO MTAも指定可能にする？
         thread.SetApartmentState(ApartmentState.STA);
         _logger.LogInformation($"GetApartmentState {thread.GetApartmentState()}");
         _uiThreadId = thread.ManagedThreadId;
@@ -515,18 +506,6 @@ public class WindowManager : IWindowManager
             }
             _logger.LogTrace($"MSG {msg}");
 
-            {
-                var ret = User32.InSendMessageEx(nint.Zero);
-                _logger.LogTrace($"InSendMessageEx {ret:X}");
-                if ((ret & (0x00000008 | 0x00000001)) == 0x00000001) //ISMEX_SEND
-                {
-                    _logger.LogTrace("ISMEX_SEND");
-                    var ret2 = User32.ReplyMessage(new nint(1)); //TODO 適当に１を返してる
-                    var error = Marshal.GetLastPInvokeError();
-                    _logger.LogTrace($"ReplyMessage {ret2} [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
-                }
-            }
-
             if (msg.hwnd.Handle == User32.HWND.None.Handle)
             {
                 _logger.LogTrace("hwnd is none");
@@ -556,8 +535,49 @@ public class WindowManager : IWindowManager
         }
     }
 
+    private bool TryGetWindow(User32.HWND hwnd, [MaybeNullWhen(false)] out NativeWindow window)
+    {
+        if (_windowMap.TryGetValue(hwnd, out window))
+        {
+            _logger.LogTrace($"window map {window.GetHashCode():X}");
+            return true;
+        }
+
+        if (_windowStack.TryPeek(out var windowFromStack))
+        {
+            _logger.LogTrace($"window stack {windowFromStack.GetHashCode():X}");
+
+            if (windowFromStack._hWindow.Handle != User32.HWND.None.Handle)
+            {
+                _logger.LogTrace($"no managed hwnd:[{hwnd}]");
+                return false;
+            }
+        }
+        else
+        {
+            _logger.LogTrace("stack none");
+            return false;
+        }
+
+        //最速でHWNDを受け取る
+        windowFromStack._hWindow = hwnd;
+        if (_windowMap.TryAdd(hwnd, windowFromStack))
+        {
+            _logger.LogInformation($"add window map hwnd:[{hwnd}]");
+            window = windowFromStack;
+            return true;
+        }
+        else
+        {
+            throw new WindowException($"failed add window map hwnd:[{hwnd}]");
+        }
+    }
+
+
     private nint WndProc(User32.HWND hwnd, uint msg, nint wParam, nint lParam)
     {
+        //TODO この中で例外が発生したときのハンドリング
+
         _logger.LogMsgWithThreadId(LogLevel.Trace, "WndProc", hwnd, msg, wParam, lParam, Environment.CurrentManagedThreadId);
 
         {
@@ -568,7 +588,7 @@ public class WindowManager : IWindowManager
             }
         }
 
-        if (_windowMap.TryGetValue(hwnd, out var window))
+        if (TryGetWindow(hwnd, out var window))
         {
             //ウインドウに流す
             var result = window.WndProc(msg, wParam, lParam, out var handled);
@@ -595,6 +615,19 @@ public class WindowManager : IWindowManager
 
     private nint WndProcBefore(User32.HWND hwnd, uint msg, nint wParam, nint lParam, out bool handled)
     {
+        {
+            var ret = User32.InSendMessageEx(nint.Zero);
+            _logger.LogTrace($"InSendMessageEx {ret:X}");
+            if ((ret & (0x00000008 | 0x00000001)) == 0x00000001) //ISMEX_SEND
+            {
+                _logger.LogTrace("ISMEX_SEND");
+                //TODO ISMEX_SENDに返す値を指定できるようにする？
+                var ret2 = User32.ReplyMessage(new nint(1));
+                var error = Marshal.GetLastPInvokeError();
+                _logger.LogTrace($"ReplyMessage {ret2} [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+            }
+        }
+
         handled = false;
         var result = nint.Zero;
 
@@ -608,15 +641,16 @@ public class WindowManager : IWindowManager
                 _logger.LogTrace($"WM_ACTIVATEAPP {wParam:X} {lParam:X}");
                 break;
 
+            case 0x0024://WM_GETMINMAXINFO
+                _logger.LogTrace($"WM_GETMINMAXINFO {wParam:X} {lParam:X}");
+                break;
+
             case 0x0046://WM_WINDOWPOSCHANGING
                 _logger.LogTrace("WM_WINDOWPOSCHANGING");
                 break;
 
             case 0x0081://WM_NCCREATE
                 _logger.LogTrace("WM_NCCREATE");
-                OnWM_NCCREATE(hwnd, lParam);
-                handled = true;
-                result = 1;
                 break;
 
             case 0x0082://WM_NCDESTROY

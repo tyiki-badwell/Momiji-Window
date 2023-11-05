@@ -52,7 +52,7 @@ public interface IWindowManager : IDisposable, IAsyncDisposable
     Task StartAsync(CancellationToken stoppingToken);
     Task CancelAsync();
 
-    public delegate nint OnMessage(int msg, nint wParam, nint lParam, out bool handled);
+    public delegate nint OnMessage(IWindow sender, int msg, nint wParam, nint lParam, out bool handled);
 
     public IWindow CreateWindow(
         IWindow? parent = default,
@@ -69,7 +69,7 @@ public interface IWindow
     {
         get;
     }
-    T Dispatch<T>(Func<T> item);
+    Task<T> DispatchAsync<T>(Func<T> item);
     bool Close();
     bool Move(
         int x,
