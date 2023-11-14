@@ -7,6 +7,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Momiji-Window", "Momiji\Mom
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MomijiTest", "MomijiTest\MomijiTest.csproj", "{43C039DE-2668-441A-891A-5AA65FB77661}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MomijiDriver", "MomijiDriver\MomijiDriver.csproj", "{CE688871-9FB9-451B-A515-DBCABB56D4B5}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,8 +23,15 @@ Global
 		{43C039DE-2668-441A-891A-5AA65FB77661}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{43C039DE-2668-441A-891A-5AA65FB77661}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{43C039DE-2668-441A-891A-5AA65FB77661}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CE688871-9FB9-451B-A515-DBCABB56D4B5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CE688871-9FB9-451B-A515-DBCABB56D4B5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CE688871-9FB9-451B-A515-DBCABB56D4B5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CE688871-9FB9-451B-A515-DBCABB56D4B5}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {2FB69939-B393-4EE1-8023-F3C0A61CBFDA}
 	EndGlobalSection
 EndGlobal
