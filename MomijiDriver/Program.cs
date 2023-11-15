@@ -26,6 +26,8 @@ public class Program
 
         var window = manager.CreateWindow();
 
+        //TODO 他のコンテンツを挿入する
+
         window.Show(1);
 
         await task;
