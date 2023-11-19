@@ -27,7 +27,7 @@ public class WindowDebug
         ))
         {
             var error = Marshal.GetLastPInvokeError();
-            logger.LogError($"[window debug] OpenProcessToken failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+            logger.Log(LogLevel.Error,$"[window debug] OpenProcessToken failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
             return;
         }
 
@@ -44,7 +44,7 @@ public class WindowDebug
                 var error = Marshal.GetLastPInvokeError();
                 if (error != 122) //ERROR_INSUFFICIENT_BUFFER ではない
                 {
-                    logger.LogError($"[window debug] GetTokenInformation failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+                    logger.Log(LogLevel.Error,$"[window debug] GetTokenInformation failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
                     return;
                 }
             }
@@ -65,13 +65,13 @@ public class WindowDebug
             ))
             {
                 var error = Marshal.GetLastPInvokeError();
-                logger.LogError($"[window debug] GetTokenInformation failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+                logger.Log(LogLevel.Error,$"[window debug] GetTokenInformation failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
                 return;
             }
 
             var p = Marshal.ReadIntPtr(ti);
             var sid = new SecurityIdentifier(p);
-            logger.LogInformation($"[window debug] SecurityInfo token:({sid})");
+            logger.Log(LogLevel.Information, $"[window debug] SecurityInfo token:({sid})");
             PrintAccountFromSid(logger, p);
         }
         finally
@@ -88,24 +88,24 @@ public class WindowDebug
         try
         {
             var windowSecurity = new WindowSecurity(desktop);
-            logger.LogInformation($"[window debug] SecurityInfo owner:{windowSecurity.GetOwner(typeof(NTAccount))}({windowSecurity.GetOwner(typeof(SecurityIdentifier))})");
-            logger.LogInformation($"[window debug] SecurityInfo group:{windowSecurity.GetGroup(typeof(NTAccount))}({windowSecurity.GetGroup(typeof(SecurityIdentifier))})");
+            logger.Log(LogLevel.Information, $"[window debug] SecurityInfo owner:{windowSecurity.GetOwner(typeof(NTAccount))}({windowSecurity.GetOwner(typeof(SecurityIdentifier))})");
+            logger.Log(LogLevel.Information, $"[window debug] SecurityInfo group:{windowSecurity.GetGroup(typeof(NTAccount))}({windowSecurity.GetGroup(typeof(SecurityIdentifier))})");
 
-            logger.LogInformation("---------------------------------");
+            logger.Log(LogLevel.Information, "---------------------------------");
             foreach (AccessRule<User32.DESKTOP_ACCESS_MASK> rule in windowSecurity.GetAccessRules(true, true, typeof(NTAccount)))
             {
-                logger.LogInformation($"[window debug] AccessRule:{rule.IdentityReference} {rule.Rights}");
+                logger.Log(LogLevel.Information, $"[window debug] AccessRule:{rule.IdentityReference} {rule.Rights}");
             }
-            logger.LogInformation("---------------------------------");
+            logger.Log(LogLevel.Information, "---------------------------------");
             foreach (AccessRule<User32.DESKTOP_ACCESS_MASK> rule in windowSecurity.GetAccessRules(true, true, typeof(SecurityIdentifier)))
             {
-                logger.LogInformation($"[window debug] AccessRule:{rule.IdentityReference} {rule.Rights}");
+                logger.Log(LogLevel.Information, $"[window debug] AccessRule:{rule.IdentityReference} {rule.Rights}");
             }
-            logger.LogInformation("---------------------------------");
+            logger.Log(LogLevel.Information, "---------------------------------");
         }
         catch (Exception e)
         {
-            logger.LogError(e, "[window debug] WindowSecurity error");
+            logger.Log(LogLevel.Error,e, "[window debug] WindowSecurity error");
         }
     }
     private static void PrintAccountFromSid(
@@ -124,7 +124,7 @@ public class WindowDebug
             var error = Marshal.GetLastPInvokeError();
             if (error != 122) //ERROR_INSUFFICIENT_BUFFER ではない
             {
-                logger.LogError($"LookupAccountSidW failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+                logger.Log(LogLevel.Error,$"LookupAccountSidW failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
                 return;
             }
         }
@@ -141,10 +141,10 @@ public class WindowDebug
         if (!Advapi32.LookupAccountSidW(nint.Zero, sid, name, szName, domainName, szDomainName, out var _))
         {
             var error = Marshal.GetLastPInvokeError();
-            logger.LogError($"GetTokenInformation failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+            logger.Log(LogLevel.Error,$"GetTokenInformation failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
             return;
         }
-        logger.LogInformation($"account [{Marshal.PtrToStringUni(name)}] [{Marshal.PtrToStringUni(domainName)}] {use}");
+        logger.Log(LogLevel.Information, $"account [{Marshal.PtrToStringUni(name)}] [{Marshal.PtrToStringUni(domainName)}] {use}");
     }
 
     public static void CheckDesktop(
@@ -155,12 +155,12 @@ public class WindowDebug
 
         {
             using var desktop = User32.GetThreadDesktop(Kernel32.GetCurrentThreadId());
-            logger.LogInformation($"[window debug] GetThreadDesktop now:{desktop.DangerousGetHandle():X}");
+            logger.Log(LogLevel.Information, $"[window debug] GetThreadDesktop now:{desktop.DangerousGetHandle():X}");
 
             if (desktop.IsInvalid)
             {
                 var error = Marshal.GetLastPInvokeError();
-                logger.LogError($"[window debug] GetThreadDesktop failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+                logger.Log(LogLevel.Error,$"[window debug] GetThreadDesktop failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
             }
             else
             {
@@ -204,12 +204,12 @@ public class WindowDebug
                     User32.DESKTOP_ACCESS_MASK.GENERIC_ALL,
                     nint.Zero //ref sa
                 );
-            logger.LogInformation($"[window debug] CreateDesktopW new:{desktop.DangerousGetHandle():X}");
+            logger.Log(LogLevel.Information, $"[window debug] CreateDesktopW new:{desktop.DangerousGetHandle():X}");
 
             if (desktop.IsInvalid)
             {
                 var error = Marshal.GetLastPInvokeError();
-                logger.LogError($"[window debug] CreateDesktopW failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+                logger.Log(LogLevel.Error,$"[window debug] CreateDesktopW failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
             }
             else
             {
@@ -231,7 +231,7 @@ public class WindowDebug
                 if (!result)
                 {
                     var error = Marshal.GetLastPInvokeError();
-                    logger.LogError($"[window debug] InitializeSecurityDescriptor failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+                    logger.Log(LogLevel.Error,$"[window debug] InitializeSecurityDescriptor failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
                 }
             }
 
@@ -259,7 +259,7 @@ public class WindowDebug
                     );
                 if (error != 0)
                 {
-                    logger.LogError($"[window debug] SetEntriesInAclW failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+                    logger.Log(LogLevel.Error,$"[window debug] SetEntriesInAclW failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
                 }
                 else
                 {
@@ -273,7 +273,7 @@ public class WindowDebug
                     if (!result)
                     {
                         var error2 = Marshal.GetLastPInvokeError();
-                        logger.LogError($"[window debug] SetSecurityDescriptorDacl failed [{error2} {Marshal.GetPInvokeErrorMessage(error2)}]");
+                        logger.Log(LogLevel.Error,$"[window debug] SetSecurityDescriptorDacl failed [{error2} {Marshal.GetPInvokeErrorMessage(error2)}]");
                     }
                 }
                 Marshal.FreeHGlobal(newAcl);
@@ -295,12 +295,12 @@ public class WindowDebug
                     User32.DESKTOP_ACCESS_MASK.GENERIC_ALL,
                     ref sa
                 );
-            logger.LogInformation($"[window debug] CreateDesktopW new:{desktop.DangerousGetHandle():X}");
+            logger.Log(LogLevel.Information, $"[window debug] CreateDesktopW new:{desktop.DangerousGetHandle():X}");
 
             if (desktop.IsInvalid)
             {
                 var error = Marshal.GetLastPInvokeError();
-                logger.LogError($"[window debug] CreateDesktopW failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+                logger.Log(LogLevel.Error,$"[window debug] CreateDesktopW failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
             }
             else
             {
@@ -326,7 +326,7 @@ public class WindowDebug
                     buf.SizeOf
                 );
             var error = Marshal.GetLastPInvokeError();
-            logger.LogInformation($"[window debug] GetProcessInformation ProcessMemoryPriority:{result} {buf.SizeOf} [{error} {Marshal.GetPInvokeErrorMessage(error)}] {buf.Target.MemoryPriority:F}");
+            logger.Log(LogLevel.Information, $"[window debug] GetProcessInformation ProcessMemoryPriority:{result} {buf.SizeOf} [{error} {Marshal.GetPInvokeErrorMessage(error)}] {buf.Target.MemoryPriority:F}");
         }
 
         {
@@ -344,7 +344,7 @@ public class WindowDebug
                     buf.SizeOf
                 );
             var error = Marshal.GetLastPInvokeError();
-            logger.LogInformation($"[window debug] GetProcessInformation ProcessPowerThrottling:{result} {buf.SizeOf} [{error} {Marshal.GetPInvokeErrorMessage(error)}] {buf.Target.Version} {buf.Target.ControlMask} {buf.Target.StateMask}");
+            logger.Log(LogLevel.Information, $"[window debug] GetProcessInformation ProcessPowerThrottling:{result} {buf.SizeOf} [{error} {Marshal.GetPInvokeErrorMessage(error)}] {buf.Target.Version} {buf.Target.ControlMask} {buf.Target.StateMask}");
         }
     }
 }

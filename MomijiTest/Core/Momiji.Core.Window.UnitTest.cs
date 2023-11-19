@@ -107,7 +107,7 @@ public class WindowUnitTest : IDisposable
 
         var canClose = false;
 
-        var window = manager.CreateWindow(default, (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
+        var window = manager.CreateWindow((IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
             handled = false;
 
             switch (msg)
@@ -147,13 +147,13 @@ public class WindowUnitTest : IDisposable
         await using var manager = new WindowManager(_loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
-        var window = manager.CreateWindow(default, (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
+        var window = manager.CreateWindow((IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
             handled = false;
             _logger.LogInformation($"on message {msg:X} {wParam:X} {lParam:X}");
 
             if (msg == 0x0001) //WM_CREATE
             {
-                var child = manager.CreateWindow(sender, (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
+                var child = manager.CreateChildWindow(sender, "EDIT", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
                     handled = false;
                     _logger.LogInformation($"child on message {msg:X} {wParam:X} {lParam:X}");
                     return 0;
@@ -168,6 +168,45 @@ public class WindowUnitTest : IDisposable
     }
 
     [TestMethod]
+    public async Task TestCreateChildWindowFail()
+    {
+        using var tokenSource = new CancellationTokenSource();
+
+        await using var manager = new WindowManager(_loggerFactory);
+        var task = manager.StartAsync(tokenSource.Token);
+
+        try
+        {
+            var window = manager.CreateWindow((IWindow sender, int msg, nint wParam, nint lParam, out bool handled) =>
+            {
+                handled = false;
+                _logger.LogInformation($"on message {msg:X} {wParam:X} {lParam:X}");
+
+                if (msg == 0x0001) //WM_CREATE
+                {
+                    var child = manager.CreateChildWindow(sender, "EDITXXX", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) =>
+                    {
+                        handled = false;
+                        _logger.LogInformation($"child on message {msg:X} {wParam:X} {lParam:X}");
+                        return 0;
+                    });
+                }
+
+                return 0;
+            });
+
+            Assert.Fail("ƒGƒ‰[‚ª”­¶‚µ‚È‚©‚Á‚½");
+        }
+        catch (Exception)
+        {
+            //OK
+        }
+
+        tokenSource.Cancel();
+        await task;
+    }
+
+    [TestMethod]
     public async Task TestSendMessage()
     {
         using var tokenSource = new CancellationTokenSource();
@@ -175,7 +214,7 @@ public class WindowUnitTest : IDisposable
         await using var manager = new WindowManager(_loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
-        var window = manager.CreateWindow(default, (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
+        var window = manager.CreateWindow((IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
             handled = false;
             if (msg == 0)
             {
@@ -220,7 +259,7 @@ public class WindowUnitTest : IDisposable
         await using var manager = new WindowManager(_loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
-        var window = manager.CreateWindow(default, (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
+        var window = manager.CreateWindow((IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
             handled = false;
             if (msg == 0)
             {

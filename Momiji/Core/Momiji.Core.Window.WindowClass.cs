@@ -1,6 +1,7 @@
 ﻿using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using Momiji.Core.Buffer;
+using Momiji.Internal.Log;
 using Kernel32 = Momiji.Interop.Kernel32.NativeMethods;
 using User32 = Momiji.Interop.User32.NativeMethods;
 
@@ -38,7 +39,7 @@ internal class WindowClass : IDisposable
 
         var atom = User32.RegisterClassExW(ref _windowClass);
         var error = Marshal.GetLastPInvokeError();
-        _logger.LogInformation($"RegisterClass {_windowClass} {atom} {error}");
+        _logger.LogWithLine(LogLevel.Information, $"RegisterClass {_windowClass} {atom} {error}");
         if (atom == 0)
         {
             throw new WindowException($"RegisterClass failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
@@ -65,13 +66,13 @@ internal class WindowClass : IDisposable
 
         if (disposing)
         {
-            _logger.LogInformation("disposing");
+            _logger.LogWithLine(LogLevel.Information, "disposing");
         }
 
         //クローズしていないウインドウが残っていると失敗する
         var result = User32.UnregisterClassW(_windowClass.lpszClassName, _windowClass.hInstance);
         var error = Marshal.GetLastPInvokeError();
-        _logger.LogInformation($"UnregisterClass {_windowClass.lpszClassName} {result} [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+        _logger.LogWithLine(LogLevel.Information, $"UnregisterClass {_windowClass.lpszClassName} {result} [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
 
         Marshal.FreeHGlobal(_windowClass.lpszClassName);
 

@@ -10,7 +10,7 @@ public class WindowException : Exception
     {
     }
 
-    public WindowException(string message, Exception innerException) : base(message, innerException)
+    public WindowException(string message, Exception? innerException) : base(message, innerException)
     {
     }
 }
@@ -55,7 +55,12 @@ public interface IWindowManager : IDisposable, IAsyncDisposable
     public delegate nint OnMessage(IWindow sender, int msg, nint wParam, nint lParam, out bool handled);
 
     public IWindow CreateWindow(
-        IWindow? parent = default,
+        OnMessage? onMessage = default
+    );
+
+    public IWindow CreateChildWindow(
+        IWindow parent,
+        string className,
         OnMessage? onMessage = default
     );
 
