@@ -39,7 +39,7 @@ internal class WindowClass : IDisposable
 
         var atom = User32.RegisterClassExW(ref _windowClass);
         var error = Marshal.GetLastPInvokeError();
-        _logger.LogWithLine(LogLevel.Information, $"RegisterClass {_windowClass} {atom} {error}");
+        _logger.LogWithLine(LogLevel.Information, $"RegisterClass {_windowClass} {atom} {error}", Environment.CurrentManagedThreadId);
         if (atom == 0)
         {
             throw new WindowException($"RegisterClass failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
@@ -66,13 +66,13 @@ internal class WindowClass : IDisposable
 
         if (disposing)
         {
-            _logger.LogWithLine(LogLevel.Information, "disposing");
+            _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
         }
 
         //クローズしていないウインドウが残っていると失敗する
         var result = User32.UnregisterClassW(_windowClass.lpszClassName, _windowClass.hInstance);
         var error = Marshal.GetLastPInvokeError();
-        _logger.LogWithLine(LogLevel.Information, $"UnregisterClass {_windowClass.lpszClassName} {result} [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+        _logger.LogWithErrorId(LogLevel.Information, $"UnregisterClass {_windowClass.lpszClassName} {result}", error, Marshal.GetPInvokeErrorMessage(error), Environment.CurrentManagedThreadId);
 
         Marshal.FreeHGlobal(_windowClass.lpszClassName);
 

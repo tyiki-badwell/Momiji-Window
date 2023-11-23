@@ -10,31 +10,40 @@ public class Program
     public static async Task Main(string[] args)
     {
         var a = Run(args);
-//        var b = Run(args);
+        var b = Run(args);
 
         var set = new HashSet<Task>
         {
             a.Item2,
-//            b.Item2
+            b.Item2
         };
 
         var windowA = a.Item3.CreateWindow();
-//        var windowB = b.Item3.CreateWindow();
+        var windowB = b.Item3.CreateWindow();
 
         var buttonA = a.Item3.CreateChildWindow(windowA, "BUTTON");
         var textA = a.Item3.CreateChildWindow(windowA, "EDIT");
 
-//        var buttonB = a.Item3.CreateChildWindow(windowB, "BUTTON");
-//        var textB = a.Item3.CreateChildWindow(windowB, "EDIT");
+        var buttonB = b.Item3.CreateChildWindow(windowB, "BUTTON");
+        var textB = b.Item3.CreateChildWindow(windowB, "EDIT");
+
+        //BスレッドからAにボタン追加
+        //TODO handleを保存できてない
+        var buttonC = b.Item3.CreateChildWindow(windowA, "BUTTON");
 
         //TODO 他のコンテンツを挿入する
 
-        //TODO hWndを保存できてないので失敗する WM_PARENTNOTIFYはManagerに移す
-        buttonA.Move(10, 10, 200, 200, true);
-        textA.Move(10, 300, 200, 200, true);
+        buttonA.Move(10, 10, 200, 80, true);
+        textA.Move(10, 300, 200, 80, true);
+
+        //TODO 失敗する
+        buttonC.Move(300, 100, 200, 80, true);
+
         windowA.Show(1);
 
-//        windowB.Show(1);
+        buttonB.Move(10, 10, 200, 80, true);
+        textB.Move(10, 300, 200, 80, true);
+        windowB.Show(1);
 
         while (set.Count > 0)
         {

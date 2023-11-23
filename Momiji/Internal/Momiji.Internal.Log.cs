@@ -7,56 +7,57 @@ namespace Momiji.Internal.Log;
 internal static partial class LogDefine
 {
     [LoggerMessage(
-        Message = "{message} ({file}:{line} {member})"
+        Message = "thread:[{threadId:X}] {message} ({file}:{line} {member})"
     )]
-    internal static partial void LogWithLine(this ILogger logger, LogLevel logLevel, string message,
+    internal static partial void LogWithLine(this ILogger logger, LogLevel logLevel, string message, int threadId,
         [CallerFilePath] string file = "",
         [CallerLineNumber] int line = 0,
         [CallerMemberName] string member = ""
         );
 
     [LoggerMessage(
-        Message = "{message} ({file}:{line} {member})"
+        Message = "thread:[{threadId:X}] {message} ({file}:{line} {member})"
     )]
-    internal static partial void LogWithLine(this ILogger logger, LogLevel logLevel, Exception exception, string message,
+    internal static partial void LogWithLine(this ILogger logger, LogLevel logLevel, Exception exception, string message, int threadId,
         [CallerFilePath] string file = "",
         [CallerLineNumber] int line = 0,
         [CallerMemberName] string member = ""
         );
 
     [LoggerMessage(
-        Message = "{message} thread:[{threadId:X}] ({file}:{line} {member})"
+        Message = "thread:[{threadId:X}] {message} error:[{errorId} {errorMessage}] ({file}:{line} {member})"
     )]
-    internal static partial void LogWithThreadId(this ILogger logger, LogLevel logLevel, string message, int threadId,
+    internal static partial void LogWithErrorId(this ILogger logger, LogLevel logLevel, string message, int errorId, string errorMessage, int threadId,
         [CallerFilePath] string file = "",
         [CallerLineNumber] int line = 0,
         [CallerMemberName] string member = ""
         );
 
     [LoggerMessage(
-        Message = "{message} hwnd:[{hwnd}] thread:[{threadId:X}] ({file}:{line} {member})"
+        Message = "thread:[{threadId:X}] hwnd:[{hwnd}] {message} msg:[{msg:X}] wParam:[{wParam:X}] lParam:[{lParam:X}] ({file}:{line} {member})"
     )]
-    internal static partial void LogWithHWndAndThreadId(this ILogger logger, LogLevel logLevel, string message, User32.HWND hwnd, int threadId,
+    internal static partial void LogWithMsg(this ILogger logger, LogLevel logLevel, string message, User32.HWND hwnd, uint msg, nint wParam, nint lParam, int threadId,
         [CallerFilePath] string file = "",
         [CallerLineNumber] int line = 0,
         [CallerMemberName] string member = ""
         );
 
     [LoggerMessage(
-        Message = "{message} hwnd:[{hwnd}] error:[{errorId} {errorMessage}] ({file}:{line} {member})"
+        Message = "thread:[{threadId:X}] hwnd:[{hwnd}] {message} ({file}:{line} {member})"
     )]
-    internal static partial void LogWithHWndAndErrorId(this ILogger logger, LogLevel logLevel, string message, User32.HWND hwnd, int errorId, string errorMessage,
+    internal static partial void LogWithHWnd(this ILogger logger, LogLevel logLevel, string message, User32.HWND hwnd, int threadId,
         [CallerFilePath] string file = "",
         [CallerLineNumber] int line = 0,
         [CallerMemberName] string member = ""
         );
 
     [LoggerMessage(
-        Message = "{message} hwnd:[{hwnd}] msg:[{msg:X}] wParam:[{wParam:X}] lParam:[{lParam:X}] / thread:[{threadId:X}] ({file}:{line} {member})"
+        Message = "thread:[{threadId:X}] hwnd:[{hwnd}] {message} error:[{errorId} {errorMessage}] ({file}:{line} {member})"
     )]
-    internal static partial void LogMsgWithThreadId(this ILogger logger, LogLevel logLevel, string message, User32.HWND hwnd, uint msg, nint wParam, nint lParam, int threadId,
+    internal static partial void LogWithHWndAndErrorId(this ILogger logger, LogLevel logLevel, string message, User32.HWND hwnd, int errorId, string errorMessage, int threadId,
         [CallerFilePath] string file = "",
         [CallerLineNumber] int line = 0,
         [CallerMemberName] string member = ""
         );
+
 }

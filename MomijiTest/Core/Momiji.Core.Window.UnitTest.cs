@@ -197,9 +197,13 @@ public class WindowUnitTest : IDisposable
 
             Assert.Fail("ƒGƒ‰[‚ª”­¶‚µ‚È‚©‚Á‚½");
         }
-        catch (Exception)
+        catch (AggregateException e)
         {
             //OK
+            e.Handle((predicate) => {
+                _logger.LogInformation(e, "error occurred");
+                return true;
+            });
         }
 
         tokenSource.Cancel();
