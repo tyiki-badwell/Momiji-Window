@@ -1,10 +1,12 @@
-﻿using System.Diagnostics;
+﻿using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using Microsoft.Extensions.Logging;
 using Momiji.Core.Buffer;
 using Momiji.Core.Window;
+using Momiji.Internal.Log;
 using Momiji.Interop.User32;
 using Advapi32 = Momiji.Interop.Advapi32.NativeMethods;
 using Kernel32 = Momiji.Interop.Kernel32.NativeMethods;
@@ -26,8 +28,8 @@ public class WindowDebug
                 out var token
         ))
         {
-            var error = Marshal.GetLastPInvokeError();
-            logger.Log(LogLevel.Error,$"[window debug] OpenProcessToken failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+            var error = new Win32Exception();
+            logger.LogWithError(LogLevel.Error, "[window debug] OpenProcessToken failed", error.ToString(), Environment.CurrentManagedThreadId);
             return;
         }
 
@@ -41,10 +43,10 @@ public class WindowDebug
                     out var dwLengthNeeded
             ))
             {
-                var error = Marshal.GetLastPInvokeError();
-                if (error != 122) //ERROR_INSUFFICIENT_BUFFER ではない
+                var error = new Win32Exception();
+                if (error.NativeErrorCode != 122) //ERROR_INSUFFICIENT_BUFFER ではない
                 {
-                    logger.Log(LogLevel.Error,$"[window debug] GetTokenInformation failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+                    logger.LogWithError(LogLevel.Error, "[window debug] GetTokenInformation failed", error.ToString(), Environment.CurrentManagedThreadId);
                     return;
                 }
             }
@@ -64,8 +66,8 @@ public class WindowDebug
                     out var _
             ))
             {
-                var error = Marshal.GetLastPInvokeError();
-                logger.Log(LogLevel.Error,$"[window debug] GetTokenInformation failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+                var error = new Win32Exception();
+                logger.LogWithError(LogLevel.Error, "[window debug] GetTokenInformation failed", error.ToString(), Environment.CurrentManagedThreadId);
                 return;
             }
 
@@ -121,10 +123,10 @@ public class WindowDebug
 
         if (!Advapi32.LookupAccountSidW(nint.Zero, sid, nint.Zero, szName, nint.Zero, szDomainName, out var use))
         {
-            var error = Marshal.GetLastPInvokeError();
-            if (error != 122) //ERROR_INSUFFICIENT_BUFFER ではない
+            var error = new Win32Exception();
+            if (error.NativeErrorCode != 122) //ERROR_INSUFFICIENT_BUFFER ではない
             {
-                logger.Log(LogLevel.Error,$"LookupAccountSidW failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+                logger.LogWithError(LogLevel.Error, "LookupAccountSidW failed", error.ToString(), Environment.CurrentManagedThreadId);
                 return;
             }
         }
@@ -140,8 +142,8 @@ public class WindowDebug
         var domainName = domainNameBuf.AddrOfPinnedObject;
         if (!Advapi32.LookupAccountSidW(nint.Zero, sid, name, szName, domainName, szDomainName, out var _))
         {
-            var error = Marshal.GetLastPInvokeError();
-            logger.Log(LogLevel.Error,$"GetTokenInformation failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+            var error = new Win32Exception();
+            logger.LogWithError(LogLevel.Error, "GetTokenInformation failed", error.ToString(), Environment.CurrentManagedThreadId);
             return;
         }
         logger.Log(LogLevel.Information, $"account [{Marshal.PtrToStringUni(name)}] [{Marshal.PtrToStringUni(domainName)}] {use}");
@@ -159,8 +161,8 @@ public class WindowDebug
 
             if (desktop.IsInvalid)
             {
-                var error = Marshal.GetLastPInvokeError();
-                logger.Log(LogLevel.Error,$"[window debug] GetThreadDesktop failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+                var error = new Win32Exception();
+                logger.LogWithError(LogLevel.Error, "[window debug] GetThreadDesktop failed", error.ToString(), Environment.CurrentManagedThreadId);
             }
             else
             {
@@ -208,8 +210,8 @@ public class WindowDebug
 
             if (desktop.IsInvalid)
             {
-                var error = Marshal.GetLastPInvokeError();
-                logger.Log(LogLevel.Error,$"[window debug] CreateDesktopW failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+                var error = new Win32Exception();
+                logger.LogWithError(LogLevel.Error, "[window debug] CreateDesktopW failed", error.ToString(), Environment.CurrentManagedThreadId);
             }
             else
             {
@@ -230,8 +232,8 @@ public class WindowDebug
                     );
                 if (!result)
                 {
-                    var error = Marshal.GetLastPInvokeError();
-                    logger.Log(LogLevel.Error,$"[window debug] InitializeSecurityDescriptor failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+                    var error = new Win32Exception();
+                    logger.LogWithError(LogLevel.Error, "[window debug] InitializeSecurityDescriptor failed", error.ToString(), Environment.CurrentManagedThreadId);
                 }
             }
 
@@ -272,8 +274,8 @@ public class WindowDebug
                         );
                     if (!result)
                     {
-                        var error2 = Marshal.GetLastPInvokeError();
-                        logger.Log(LogLevel.Error,$"[window debug] SetSecurityDescriptorDacl failed [{error2} {Marshal.GetPInvokeErrorMessage(error2)}]");
+                        var error2 = new Win32Exception();
+                        logger.LogWithError(LogLevel.Error, "[window debug] SetSecurityDescriptorDacl failed", error2.ToString(), Environment.CurrentManagedThreadId);
                     }
                 }
                 Marshal.FreeHGlobal(newAcl);
@@ -299,8 +301,8 @@ public class WindowDebug
 
             if (desktop.IsInvalid)
             {
-                var error = Marshal.GetLastPInvokeError();
-                logger.Log(LogLevel.Error,$"[window debug] CreateDesktopW failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+                var error = new Win32Exception();
+                logger.LogWithError(LogLevel.Error, "[window debug] CreateDesktopW failed", error2.ToString(), Environment.CurrentManagedThreadId);
             }
             else
             {
@@ -325,8 +327,8 @@ public class WindowDebug
                     buf.AddrOfPinnedObject,
                     buf.SizeOf
                 );
-            var error = Marshal.GetLastPInvokeError();
-            logger.Log(LogLevel.Information, $"[window debug] GetProcessInformation ProcessMemoryPriority:{result} {buf.SizeOf} [{error} {Marshal.GetPInvokeErrorMessage(error)}] {buf.Target.MemoryPriority:F}");
+            var error = new Win32Exception();
+            logger.LogWithError(LogLevel.Information, $"[window debug] GetProcessInformation ProcessMemoryPriority:{result} {buf.SizeOf} {buf.Target.MemoryPriority:F}", error.ToString(), Environment.CurrentManagedThreadId);
         }
 
         {
@@ -343,8 +345,8 @@ public class WindowDebug
                     buf.AddrOfPinnedObject,
                     buf.SizeOf
                 );
-            var error = Marshal.GetLastPInvokeError();
-            logger.Log(LogLevel.Information, $"[window debug] GetProcessInformation ProcessPowerThrottling:{result} {buf.SizeOf} [{error} {Marshal.GetPInvokeErrorMessage(error)}] {buf.Target.Version} {buf.Target.ControlMask} {buf.Target.StateMask}");
+            var error = new Win32Exception();
+            logger.LogWithError(LogLevel.Information, $"[window debug] GetProcessInformation ProcessPowerThrottling:{result} {buf.SizeOf} {buf.Target.Version} {buf.Target.ControlMask} {buf.Target.StateMask}", error.ToString(), Environment.CurrentManagedThreadId);
         }
     }
 }

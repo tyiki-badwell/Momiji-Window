@@ -1,7 +1,9 @@
 ﻿using System.Collections.Concurrent;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Momiji.Core.Buffer;
 using Momiji.Internal.Debug;
@@ -36,15 +38,16 @@ public class WindowManager : IWindowManager
     private readonly ConcurrentDictionary<User32.HWND, nint> _oldWndProcMap = new();
 
     public WindowManager(
-//        IConfiguration configuration,
+        IConfiguration configuration,
         ILoggerFactory loggerFactory
     )
     {
-//        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(loggerFactory);
 
         //TODO windowとthreadが1:1のモード
-//        _configurationSection = configuration.GetSection($"{typeof(WindowManager).FullName}");
+        var param = new IWindowManager.Param();
+        configuration.GetSection($"{typeof(WindowManager).FullName}").Bind(param);
 
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<WindowManager>();
@@ -54,7 +57,7 @@ public class WindowManager : IWindowManager
             new WindowClass(
                 _loggerFactory,
                 _wndProc,
-                User32.WNDCLASSEX.CS.OWNDC //TODO パラメーターにする
+                param.CS
             );
     }
     ~WindowManager()
@@ -137,14 +140,74 @@ public class WindowManager : IWindowManager
         }
     }
 
+    internal class PerMonitorAwareV2ThreadDpiAwarenessContextSetter : IDisposable
+    {
+        private readonly ILogger _logger;
+        private readonly NativeWindow _window;
+
+        private bool _disposed;
+        private readonly User32.DPI_AWARENESS_CONTEXT _oldContext;
+
+        public PerMonitorAwareV2ThreadDpiAwarenessContextSetter(
+            ILoggerFactory loggerFactory,
+            NativeWindow window
+        )
+        {
+            _logger = loggerFactory.CreateLogger<PerMonitorAwareV2ThreadDpiAwarenessContextSetter>();
+            _window = window;
+
+            _oldContext = User32.SetThreadDpiAwarenessContext(User32.DPI_AWARENESS_CONTEXT.PER_MONITOR_AWARE_V2);
+
+            var error = new Win32Exception();
+            _logger.LogWithHWndAndError(LogLevel.Trace, $"ON SetThreadDpiAwarenessContext [{_oldContext:X} -> PER_MONITOR_AWARE_V2]", _window._hWindow, error.ToString(), Environment.CurrentManagedThreadId);
+        }
+
+        ~PerMonitorAwareV2ThreadDpiAwarenessContextSetter()
+        {
+            Dispose(false);
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (disposing)
+            {
+            }
+
+            if (_oldContext.Handle != 0)
+            {
+                var oldContext = User32.SetThreadDpiAwarenessContext(_oldContext);
+
+                var error = new Win32Exception();
+                _logger.LogWithHWndAndError(LogLevel.Trace, $"OFF SetThreadDpiAwarenessContext [{oldContext} -> {_oldContext}]", _window._hWindow, error.ToString(), Environment.CurrentManagedThreadId);
+            }
+
+            _disposed = true;
+        }
+    }
+
     internal Task<T> DispatchAsync<T>(NativeWindow window, Func<T> item)
     {
         T func()
         {
-            //TODO スレッドセーフになっているか要確認(再入してたらダメ)
+            //TODO スレッドセーフになっているか要確認(再入しても問題ないなら気にしない)
             _windowStack.Push(window);
+
             try
             {
+                //TODO CreateWindowだけ囲えば良さそうだが、一旦全部囲ってしまう
+                using var context = new PerMonitorAwareV2ThreadDpiAwarenessContextSetter(_loggerFactory, window);
+
                 var result = item.Invoke();
                 return result;
             }
@@ -206,6 +269,23 @@ public class WindowManager : IWindowManager
         return window;
     }
 
+    public IWindow CreateWindow(
+        IWindow parent,
+        IWindowManager.OnMessage? onMessage = default
+    )
+    {
+        var window =
+            new NativeWindow(
+                _loggerFactory,
+                this,
+                onMessage
+            );
+
+        window.CreateWindow(_windowClass, (parent as NativeWindow)!);
+
+        return window;
+    }
+
     public IWindow CreateChildWindow(
         IWindow parent,
         string className,
@@ -245,11 +325,11 @@ public class WindowManager : IWindowManager
                             ? User32.SetWindowLongPtrA(childHWnd, nIndex, dwNewLong)
                             : User32.SetWindowLongA(childHWnd, nIndex, dwNewLong)
                         ;
-        var error = Marshal.GetLastPInvokeError();
-        _logger.LogWithHWndAndErrorId(LogLevel.Information, $"SetWindowLong result:[{result}]", childHWnd, error, Marshal.GetPInvokeErrorMessage(error), Environment.CurrentManagedThreadId);
-        if (result == 0 && error != 0)
+        var error = new Win32Exception();
+        _logger.LogWithHWndAndError(LogLevel.Information, $"SetWindowLong result:[{result:X}]", childHWnd, error.ToString(), Environment.CurrentManagedThreadId);
+        if (result == 0 && error.NativeErrorCode != 0)
         {
-            throw new WindowException($"SetWindowLong failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+            throw new WindowException("SetWindowLong failed", error);
         }
 
         return result;
@@ -271,11 +351,22 @@ public class WindowManager : IWindowManager
                     if (_oldWndProcMap.TryAdd(childHWnd, nint.Zero))
                     {
                         var oldWndProc = ChildWindowSetWindowLong(childHWnd, GWLP_WNDPROC, _wndProc.FunctionPointer);
-                        _logger.LogWithHWnd(LogLevel.Information, $"add to old wndproc map hwnd:[{childHWnd}]", hwnd, Environment.CurrentManagedThreadId);
-                        if (!_oldWndProcMap.TryUpdate(childHWnd, oldWndProc, nint.Zero))
+
+                        if (oldWndProc == _wndProc.FunctionPointer)
                         {
-                            //更新できなかった
-                            _logger.LogWithHWnd(LogLevel.Error, $"failed add to old wndproc map hwnd:[{childHWnd}]", hwnd, Environment.CurrentManagedThreadId);
+                            //変更前・変更後のWndProcが同じだった＝WindowManager経由で作ったWindow　→　ここで管理する必要なし
+                            //TODO SetWindowLongする前にバイパスした方がよい
+                            _logger.LogWithHWnd(LogLevel.Information, $"IGNORE hwnd:[{childHWnd}]", hwnd, Environment.CurrentManagedThreadId);
+                            _oldWndProcMap.TryRemove(childHWnd, out var _);
+                        }
+                        else
+                        {
+                            _logger.LogWithHWnd(LogLevel.Information, $"add to old wndproc map hwnd:[{childHWnd}]", hwnd, Environment.CurrentManagedThreadId);
+                            if (!_oldWndProcMap.TryUpdate(childHWnd, oldWndProc, nint.Zero))
+                            {
+                                //更新できなかった
+                                _logger.LogWithHWnd(LogLevel.Error, $"failed add to old wndproc map hwnd:[{childHWnd}]", hwnd, Environment.CurrentManagedThreadId);
+                            }
                         }
                     }
                     else
@@ -306,6 +397,16 @@ public class WindowManager : IWindowManager
                     }
                     break;
                 }
+        }
+    }
+
+    private void OnWM_NCCREATE(User32.HWND hwnd)
+    {
+        //TODO トップレベルウインドウだったときのみ呼び出す
+        if (!User32.EnableNonClientDpiScaling(hwnd))
+        {
+            var error = new Win32Exception();
+            _logger.LogWithHWndAndError(LogLevel.Error, "EnableNonClientDpiScaling failed", hwnd, error.ToString(), Environment.CurrentManagedThreadId);
         }
     }
 
@@ -420,8 +521,8 @@ public class WindowManager : IWindowManager
                         _logger.LogWithLine(LogLevel.Warning, $"DestroyWindow {hwnd:X}", Environment.CurrentManagedThreadId);
                         if (!User32.DestroyWindow(hwnd))
                         {
-                            var error = Marshal.GetLastPInvokeError();
-                            _logger.LogWithHWndAndErrorId(LogLevel.Error, "DestroyWindow failed", hwnd, error, Marshal.GetPInvokeErrorMessage(error), Environment.CurrentManagedThreadId);
+                            var error = new Win32Exception();
+                            _logger.LogWithHWndAndError(LogLevel.Error, "DestroyWindow failed", hwnd, error.ToString(), Environment.CurrentManagedThreadId);
                         }
                     }
 
@@ -470,8 +571,8 @@ public class WindowManager : IWindowManager
             var result = User32.IsGUIThread(true);
             if (!result)
             {
-                var error = Marshal.GetLastPInvokeError();
-                throw new WindowException($"IsGUIThread failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+                var error = new Win32Exception();
+                throw new WindowException("IsGUIThread failed", error);
             }
         }
 
@@ -480,8 +581,8 @@ public class WindowManager : IWindowManager
                 User32.GetQueueStatus(
                     0x04FF //QS_ALLINPUT
                 );
-            var error = Marshal.GetLastPInvokeError();
-            _logger.LogWithErrorId(LogLevel.Information, $"GetQueueStatus {result}", error, Marshal.GetPInvokeErrorMessage(error), Environment.CurrentManagedThreadId);
+            var error = new Win32Exception();
+            _logger.LogWithError(LogLevel.Information, $"GetQueueStatus {result}", error.ToString(), Environment.CurrentManagedThreadId);
         }
 
         {
@@ -490,8 +591,8 @@ public class WindowManager : IWindowManager
                 cb = Marshal.SizeOf<Kernel32.STARTUPINFOW>()
             };
             Kernel32.GetStartupInfoW(ref si);
-            var error = Marshal.GetLastPInvokeError();
-            _logger.LogWithErrorId(LogLevel.Information, $"GetStartupInfoW [{si.dwFlags}][{si.wShowWindow}]", error, Marshal.GetPInvokeErrorMessage(error), Environment.CurrentManagedThreadId);
+            var error = new Win32Exception();
+            _logger.LogWithError(LogLevel.Information, $"GetStartupInfoW [{si.dwFlags}][{si.wShowWindow}]", error.ToString(), Environment.CurrentManagedThreadId);
         }
     }
 
@@ -596,8 +697,8 @@ public class WindowManager : IWindowManager
                 else
                 {
                     //エラー
-                    var error = Marshal.GetLastPInvokeError();
-                    throw new WindowException($"MsgWaitForMultipleObjectsEx failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+                    var error = new Win32Exception();
+                    throw new WindowException("MsgWaitForMultipleObjectsEx failed", error);
                 }
             }
         }
@@ -634,8 +735,8 @@ public class WindowManager : IWindowManager
             {
                 _logger.LogWithLine(LogLevel.Trace, "TranslateMessage", Environment.CurrentManagedThreadId);
                 var ret = User32.TranslateMessage(ref msg);
-                var error = Marshal.GetLastPInvokeError();
-                _logger.LogWithHWndAndErrorId(LogLevel.Trace, $"TranslateMessage {ret}", msg.hwnd, error, Marshal.GetPInvokeErrorMessage(error), Environment.CurrentManagedThreadId);
+                var error = new Win32Exception();
+                _logger.LogWithHWndAndError(LogLevel.Trace, $"TranslateMessage {ret}", msg.hwnd, error.ToString(), Environment.CurrentManagedThreadId);
             }
 
             {
@@ -647,8 +748,8 @@ public class WindowManager : IWindowManager
                             ? User32.DispatchMessageW(ref msg)
                             : User32.DispatchMessageA(ref msg)
                             ;
-                var error = Marshal.GetLastPInvokeError();
-                _logger.LogWithHWndAndErrorId(LogLevel.Trace, $"DispatchMessage {ret}", msg.hwnd, error, Marshal.GetPInvokeErrorMessage(error), Environment.CurrentManagedThreadId);
+                var error = new Win32Exception();
+                _logger.LogWithHWndAndError(LogLevel.Trace, $"DispatchMessage {ret}", msg.hwnd, error.ToString(), Environment.CurrentManagedThreadId);
             }
         }
     }
@@ -715,6 +816,10 @@ public class WindowManager : IWindowManager
                     _logger.LogWithLine(LogLevel.Trace, $"handled msg:{msg:X} result:{result}", Environment.CurrentManagedThreadId);
                     return result;
                 }
+                else
+                {
+                    _logger.LogWithLine(LogLevel.Trace, $"no handled msg:{msg:X} result:{result}", Environment.CurrentManagedThreadId);
+                }
             }
             else
             {
@@ -761,9 +866,26 @@ public class WindowManager : IWindowManager
                 _logger.LogWithLine(LogLevel.Trace, "ISMEX_SEND", Environment.CurrentManagedThreadId);
                 //TODO ISMEX_SENDに返す値を指定できるようにする　どうやってここに渡す？
                 var ret2 = User32.ReplyMessage(new nint(1));
-                var error = Marshal.GetLastPInvokeError();
-                _logger.LogWithHWndAndErrorId(LogLevel.Trace, $"ReplyMessage {ret2}", hwnd, error, Marshal.GetPInvokeErrorMessage(error), Environment.CurrentManagedThreadId);
+                var error = new Win32Exception();
+                _logger.LogWithHWndAndError(LogLevel.Trace, $"ReplyMessage {ret2}", hwnd, error.ToString(), Environment.CurrentManagedThreadId);
             }
+        }
+
+        {
+            var context = User32.GetThreadDpiAwarenessContext();
+            var awareness = User32.GetAwarenessFromDpiAwarenessContext(context);
+            var dpi = User32.GetDpiFromDpiAwarenessContext(context);
+
+            _logger.LogWithHWnd(LogLevel.Trace, $"GetThreadDpiAwarenessContext [context:{context}][awareness:{awareness}][dpi:{dpi}]", hwnd, Environment.CurrentManagedThreadId);
+        }
+
+        {
+            var context = User32.GetWindowDpiAwarenessContext(hwnd);
+            var awareness = User32.GetAwarenessFromDpiAwarenessContext(context);
+            var dpi = User32.GetDpiFromDpiAwarenessContext(context);
+            var dpiForWindow = User32.GetDpiForWindow(hwnd);
+
+            _logger.LogWithHWnd(LogLevel.Trace, $"GetWindowDpiAwarenessContext [context:{context}][awareness:{awareness}][dpi:{dpi}][dpiForWindow:{dpiForWindow}]", hwnd, Environment.CurrentManagedThreadId);
         }
 
         handled = false;
@@ -789,6 +911,7 @@ public class WindowManager : IWindowManager
 
             case 0x0081://WM_NCCREATE
                 _logger.LogWithLine(LogLevel.Trace, "WM_NCCREATE", Environment.CurrentManagedThreadId);
+                OnWM_NCCREATE(hwnd);
                 break;
 
             case 0x0082://WM_NCDESTROY
@@ -804,6 +927,22 @@ public class WindowManager : IWindowManager
             case 0x0210://WM_PARENTNOTIFY
                 _logger.LogWithLine(LogLevel.Trace, "WM_PARENTNOTIFY", Environment.CurrentManagedThreadId);
                 OnWM_PARENTNOTIFY(hwnd, wParam, lParam);
+                break;
+
+            case 0x02E0://WM_DPICHANGED
+                _logger.LogWithLine(LogLevel.Trace, "WM_DPICHANGED", Environment.CurrentManagedThreadId);
+                break;
+
+            case 0x02E2://WM_DPICHANGED_BEFOREPARENT
+                _logger.LogWithLine(LogLevel.Trace, "WM_DPICHANGED_BEFOREPARENT", Environment.CurrentManagedThreadId);
+                break;
+
+            case 0x02E3://WM_DPICHANGED_AFTERPARENT
+                _logger.LogWithLine(LogLevel.Trace, "WM_DPICHANGED_AFTERPARENT", Environment.CurrentManagedThreadId);
+                break;
+
+            case 0x02E4://WM_GETDPISCALEDSIZE
+                _logger.LogWithLine(LogLevel.Trace, "WM_GETDPISCALEDSIZE", Environment.CurrentManagedThreadId);
                 break;
         }
 

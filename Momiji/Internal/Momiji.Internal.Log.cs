@@ -25,9 +25,9 @@ internal static partial class LogDefine
         );
 
     [LoggerMessage(
-        Message = "thread:[{threadId:X}] {message} error:[{errorId} {errorMessage}] ({file}:{line} {member})"
+        Message = "thread:[{threadId:X}] {message} error:[{error}] ({file}:{line} {member})"
     )]
-    internal static partial void LogWithErrorId(this ILogger logger, LogLevel logLevel, string message, int errorId, string errorMessage, int threadId,
+    internal static partial void LogWithError(this ILogger logger, LogLevel logLevel, string message, string error, int threadId,
         [CallerFilePath] string file = "",
         [CallerLineNumber] int line = 0,
         [CallerMemberName] string member = ""
@@ -52,9 +52,9 @@ internal static partial class LogDefine
         );
 
     [LoggerMessage(
-        Message = "thread:[{threadId:X}] hwnd:[{hwnd}] {message} error:[{errorId} {errorMessage}] ({file}:{line} {member})"
+        Message = "thread:[{threadId:X}] hwnd:[{hwnd}] {message} error:[{error}] ({file}:{line} {member})"
     )]
-    internal static partial void LogWithHWndAndErrorId(this ILogger logger, LogLevel logLevel, string message, User32.HWND hwnd, int errorId, string errorMessage, int threadId,
+    internal static partial void LogWithHWndAndError(this ILogger logger, LogLevel logLevel, string message, User32.HWND hwnd, string error, int threadId,
         [CallerFilePath] string file = "",
         [CallerLineNumber] int line = 0,
         [CallerMemberName] string member = ""

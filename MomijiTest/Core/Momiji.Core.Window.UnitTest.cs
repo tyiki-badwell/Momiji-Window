@@ -54,14 +54,37 @@ public class WindowUnitTest : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private static IConfiguration CreateConfiguration()
+    private static IConfiguration CreateConfiguration(
+        int cs = 0
+    )
     {
         var configuration =
             new ConfigurationBuilder()
             .AddJsonFile("appsettings.json")
             .Build();
 
+        var section = configuration.GetSection("Momiji.Core.Window.WindowManager");
+
+        if (cs != 0)
+        {
+            section["CS"] = cs.ToString();
+        }
+
         return configuration;
+    }
+
+    [TestMethod]
+    public async Task TestRegisterClassFail()
+    {
+        try
+        {
+            await using var manager = new WindowManager(CreateConfiguration(0x9999), _loggerFactory);
+            Assert.Fail("ƒGƒ‰[‚ª”­¶‚µ‚È‚©‚Á‚½");
+        }
+        catch (WindowException)
+        {
+            //OK
+        }
     }
 
     [TestMethod]
@@ -69,7 +92,7 @@ public class WindowUnitTest : IDisposable
     {
         using var tokenSource = new CancellationTokenSource();
 
-        await using var manager = new WindowManager(_loggerFactory);
+        await using var manager = new WindowManager(CreateConfiguration(), _loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
         var window = manager.CreateWindow();
@@ -102,7 +125,7 @@ public class WindowUnitTest : IDisposable
     {
         using var tokenSource = new CancellationTokenSource();
 
-        await using var manager = new WindowManager(_loggerFactory);
+        await using var manager = new WindowManager(CreateConfiguration(), _loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
         var canClose = false;
@@ -144,7 +167,7 @@ public class WindowUnitTest : IDisposable
     {
         using var tokenSource = new CancellationTokenSource();
 
-        await using var manager = new WindowManager(_loggerFactory);
+        await using var manager = new WindowManager(CreateConfiguration(), _loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
         var window = manager.CreateWindow((IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
@@ -172,7 +195,7 @@ public class WindowUnitTest : IDisposable
     {
         using var tokenSource = new CancellationTokenSource();
 
-        await using var manager = new WindowManager(_loggerFactory);
+        await using var manager = new WindowManager(CreateConfiguration(), _loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
         try
@@ -215,7 +238,7 @@ public class WindowUnitTest : IDisposable
     {
         using var tokenSource = new CancellationTokenSource();
 
-        await using var manager = new WindowManager(_loggerFactory);
+        await using var manager = new WindowManager(CreateConfiguration(), _loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
         var window = manager.CreateWindow((IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
@@ -260,7 +283,7 @@ public class WindowUnitTest : IDisposable
     {
         using var tokenSource = new CancellationTokenSource();
 
-        await using var manager = new WindowManager(_loggerFactory);
+        await using var manager = new WindowManager(CreateConfiguration(), _loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
         var window = manager.CreateWindow((IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
@@ -298,7 +321,7 @@ public class WindowUnitTest : IDisposable
     {
         using var tokenSource = new CancellationTokenSource();
 
-        await using var manager = new WindowManager(_loggerFactory);
+        await using var manager = new WindowManager(CreateConfiguration(), _loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
         var window = manager.CreateWindow();
@@ -318,11 +341,11 @@ public class WindowUnitTest : IDisposable
     }
 
     [TestMethod]
-    public async Task TestDIspatch()
+    public async Task TestDispatch()
     {
         using var tokenSource = new CancellationTokenSource();
 
-        await using var manager = new WindowManager(_loggerFactory);
+        await using var manager = new WindowManager(CreateConfiguration(), _loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
         var window = manager.CreateWindow();
@@ -345,4 +368,50 @@ public class WindowUnitTest : IDisposable
         tokenSource.Cancel();
         await task;
     }
+
+
+    [TestMethod]
+    public async Task TestCreateWindowFromOtherThread()
+    {
+        using var tokenSource = new CancellationTokenSource();
+
+        await using var managerA = new WindowManager(CreateConfiguration(), _loggerFactory);
+        var taskA = managerA.StartAsync(tokenSource.Token);
+
+        await using var managerB = new WindowManager(CreateConfiguration(), _loggerFactory);
+        var taskB = managerB.StartAsync(tokenSource.Token);
+
+
+        var windowA = managerA.CreateWindow((IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
+            handled = false;
+            _logger.LogInformation($"PARENT on message {msg:X} {wParam:X} {lParam:X}");
+            return 0;
+        });
+
+        var buttonA = managerA.CreateChildWindow(windowA, "BUTTON", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
+            handled = false;
+            _logger.LogInformation($"CHILD A on message {msg:X} {wParam:X} {lParam:X}");
+            return 0;
+        });
+
+        var windowAA = managerA.CreateWindow(windowA, (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
+            handled = false;
+            _logger.LogInformation($"CHILD W on message {msg:X} {wParam:X} {lParam:X}");
+            return 0;
+        });
+
+        var buttonB = managerB.CreateChildWindow(windowA, "BUTTON", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
+            handled = false;
+            _logger.LogInformation($"CHILD B on message {msg:X} {wParam:X} {lParam:X}");
+            return 0;
+        });
+
+        await Task.Delay(1000);
+
+        tokenSource.Cancel();
+        await taskA;
+        await taskB;
+    }
+
+
 }

@@ -1,9 +1,7 @@
-﻿using System.Collections.Concurrent;
+﻿using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
-using Momiji.Core.Buffer;
 using Momiji.Internal.Log;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
@@ -39,25 +37,88 @@ internal class NativeWindow : IWindow
         return _windowManager.DispatchAsync(this, item);
     }
 
+    internal class MixedThreadDpiHostingBehaviorSetter : IDisposable
+    {
+        private readonly ILogger _logger;
+
+        private bool _disposed;
+        private readonly User32.DPI_HOSTING_BEHAVIOR _oldBehavior;
+
+        public MixedThreadDpiHostingBehaviorSetter(
+            ILoggerFactory loggerFactory
+        )
+        {
+            _logger = loggerFactory.CreateLogger<MixedThreadDpiHostingBehaviorSetter>();
+            _oldBehavior = User32.SetThreadDpiHostingBehavior(User32.DPI_HOSTING_BEHAVIOR.MIXED);
+            _logger.LogWithLine(LogLevel.Trace, $"ON SetThreadDpiHostingBehavior [{_oldBehavior} -> MIXED]", Environment.CurrentManagedThreadId);
+        }
+
+        ~MixedThreadDpiHostingBehaviorSetter()
+        {
+            Dispose(false);
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (disposing)
+            {
+            }
+
+            if (_oldBehavior != User32.DPI_HOSTING_BEHAVIOR.INVALID)
+            {
+                var oldBehavior = User32.SetThreadDpiHostingBehavior(_oldBehavior);
+                _logger.LogWithLine(LogLevel.Trace, $"OFF SetThreadDpiHostingBehavior [{oldBehavior} -> {_oldBehavior}]", Environment.CurrentManagedThreadId);
+            }
+
+            _disposed = true;
+        }
+    }
+
     internal void CreateWindow(
-        WindowClass windowClass
+        WindowClass windowClass,
+        NativeWindow? parent = default
     )
     {
         // メッセージループに移行してからCreateWindowする
         var task = DispatchAsync(() =>
         {
             //TODO パラメーターにする
-            var style = unchecked((int)0x10000000); //WS_VISIBLE
-            //style |= unchecked((int)0x80000000); //WS_POPUP
-            style |= unchecked((int)0x00C00000); //WS_CAPTION
-            style |= unchecked((int)0x00080000); //WS_SYSMENU
-            style |= unchecked((int)0x00040000); //WS_THICKFRAME
-            style |= unchecked((int)0x00020000); //WS_MINIMIZEBOX
-            style |= unchecked((int)0x00010000); //WS_MAXIMIZEBOX
+            var style = 0;
+            var parentHWnd = User32.HWND.None;
+
+            if (parent == null)
+            {
+                style = unchecked((int)0x10000000); //WS_VISIBLE
+                                                    //style |= unchecked((int)0x80000000); //WS_POPUP
+                style |= unchecked((int)0x00C00000); //WS_CAPTION
+                style |= unchecked((int)0x00080000); //WS_SYSMENU
+                style |= unchecked((int)0x00040000); //WS_THICKFRAME
+                style |= unchecked((int)0x00020000); //WS_MINIMIZEBOX
+                style |= unchecked((int)0x00010000); //WS_MAXIMIZEBOX
+            }
+            else
+            {
+                parentHWnd = parent._hWindow;
+
+                style = unchecked((int)0x10000000); //WS_VISIBLE
+                style |= unchecked((int)0x40000000); //WS_CHILD
+            }
 
             var CW_USEDEFAULT = unchecked((int)0x80000000);
 
             //TODO DPI awareness 
+            using var behaviorSetter = new MixedThreadDpiHostingBehaviorSetter(_loggerFactory);
 
             _logger.LogWithLine(LogLevel.Trace, "CreateWindowEx", Environment.CurrentManagedThreadId);
             var hWindow =
@@ -70,19 +131,22 @@ internal class NativeWindow : IWindow
                     CW_USEDEFAULT,
                     CW_USEDEFAULT,
                     CW_USEDEFAULT,
-                    User32.HWND.None,
+                    parentHWnd,
                     nint.Zero, //TODO メニューハンドル
                     windowClass.HInstance,
                     nint.Zero
                 );
-            var error = Marshal.GetLastPInvokeError();
-            _logger.LogWithHWndAndErrorId(LogLevel.Information, "CreateWindowEx result", hWindow, error, Marshal.GetPInvokeErrorMessage(error), Environment.CurrentManagedThreadId);
+            var error = new Win32Exception();
+            _logger.LogWithHWndAndError(LogLevel.Information, "CreateWindowEx result", hWindow, error.ToString(), Environment.CurrentManagedThreadId);
             if (hWindow.Handle == User32.HWND.None.Handle)
             {
                 hWindow = default;
                 _windowManager.ThrowIfOccurredInWndProc();
-                throw new WindowException($"CreateWindowEx failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+                throw new WindowException("CreateWindowEx failed", error);
             }
+
+            var behavior = User32.GetWindowDpiHostingBehavior(hWindow);
+            _logger.LogWithLine(LogLevel.Trace, $"GetWindowDpiHostingBehavior {behavior}", Environment.CurrentManagedThreadId);
 
             return hWindow;
         });
@@ -101,7 +165,8 @@ internal class NativeWindow : IWindow
         var task = DispatchAsync(() =>
         {
             //TODO パラメーターにする
-            var style = unchecked((int)0x10000000); //WS_VISIBLE
+            var style = 0;
+            style = unchecked((int)0x10000000); //WS_VISIBLE
             style |= unchecked((int)0x40000000); //WS_CHILD
 
             var CW_USEDEFAULT = unchecked((int)0x80000000);
@@ -127,14 +192,18 @@ internal class NativeWindow : IWindow
                         nint.Zero,
                         nint.Zero
                     );
-                var error = Marshal.GetLastPInvokeError();
-                _logger.LogWithHWndAndErrorId(LogLevel.Information, "CreateWindowEx result", hWindow, error, Marshal.GetPInvokeErrorMessage(error), Environment.CurrentManagedThreadId);
+                var error = new Win32Exception();
+                _logger.LogWithHWndAndError(LogLevel.Information, "CreateWindowEx result", hWindow, error.ToString(), Environment.CurrentManagedThreadId);
                 if (hWindow.Handle == User32.HWND.None.Handle)
                 {
                     hWindow = default;
                     _windowManager.ThrowIfOccurredInWndProc();
-                    throw new WindowException($"CreateWindowEx failed [{error} {Marshal.GetPInvokeErrorMessage(error)}][{className}]");
+                    throw new WindowException($"CreateWindowEx failed [{className}]", error);
                 }
+
+                var behavior = User32.GetWindowDpiHostingBehavior(hWindow);
+                _logger.LogWithLine(LogLevel.Trace, $"GetWindowDpiHostingBehavior {behavior}", Environment.CurrentManagedThreadId);
+
                 return hWindow;
             }
             finally
@@ -173,13 +242,13 @@ internal class NativeWindow : IWindow
                 wParam,
                 lParam
             );
-        var error = Marshal.GetLastPInvokeError();
-        _logger.LogWithHWndAndErrorId(LogLevel.Trace, $"SendMessageW result:[{result}]", _hWindow, error, Marshal.GetPInvokeErrorMessage(error), Environment.CurrentManagedThreadId);
+        var error = new Win32Exception();
+        _logger.LogWithHWndAndError(LogLevel.Trace, $"SendMessageW result:[{result}]", _hWindow, error.ToString(), Environment.CurrentManagedThreadId);
 
-        if (error != 0)
+        if (error.NativeErrorCode != 0)
         {
             //UIPIに引っかかると5が返ってくる
-            throw new WindowException($"SendMessageW failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+            throw new WindowException("SendMessageW failed", error);
         }
         return result;
     }
@@ -198,14 +267,14 @@ internal class NativeWindow : IWindow
                 wParam,
                 lParam
             );
-        var error = Marshal.GetLastPInvokeError();
-        _logger.LogWithHWndAndErrorId(LogLevel.Trace, $"PostMessageW result:[{result}]", _hWindow, error, Marshal.GetPInvokeErrorMessage(error), Environment.CurrentManagedThreadId);
+        var error = new Win32Exception();
+        _logger.LogWithHWndAndError(LogLevel.Trace, $"PostMessageW result:[{result}]", _hWindow, error.ToString(), Environment.CurrentManagedThreadId);
 
         if (!result)
         {
-            if (error != 0)
+            if (error.NativeErrorCode != 0)
             {
-                throw new WindowException($"PostMessageW failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+                throw new WindowException("PostMessageW failed", error);
             }
         }
     }
@@ -233,8 +302,8 @@ internal class NativeWindow : IWindow
 
             if (!result)
             {
-                var error = Marshal.GetLastPInvokeError();
-                _logger.LogWithHWndAndErrorId(LogLevel.Error, "MoveWindow", _hWindow, error, Marshal.GetPInvokeErrorMessage(error), Environment.CurrentManagedThreadId);
+                var error = new Win32Exception();
+                _logger.LogWithHWndAndError(LogLevel.Error, "MoveWindow", _hWindow, error.ToString(), Environment.CurrentManagedThreadId);
             }
             return result;
         }).Result;
@@ -253,14 +322,14 @@ internal class NativeWindow : IWindow
                     cmdShow
                 );
 
-            var error = Marshal.GetLastPInvokeError();
+            var error = new Win32Exception();
 
             //result=0: 実行前は非表示だった/ <>0:実行前から表示されていた
-            _logger.LogWithHWndAndErrorId(LogLevel.Information, $"ShowWindow result:[{result}]", _hWindow, error, Marshal.GetPInvokeErrorMessage(error), Environment.CurrentManagedThreadId);
+            _logger.LogWithHWndAndError(LogLevel.Information, $"ShowWindow result:[{result}]", _hWindow, error.ToString(), Environment.CurrentManagedThreadId);
 
-            if (error == 1400) // ERROR_INVALID_WINDOW_HANDLE
+            if (error.NativeErrorCode == 1400) // ERROR_INVALID_WINDOW_HANDLE
             {
-                throw new WindowException($"ShowWindow failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+                throw new WindowException("ShowWindow failed", error);
             }
 
             {
@@ -290,27 +359,27 @@ internal class NativeWindow : IWindow
                 var result = User32.GetClientRect(_hWindow, ref clientRect);
                 if (!result)
                 {
-                    var error = Marshal.GetLastPInvokeError();
-                    _logger.LogWithHWndAndErrorId(LogLevel.Error, "GetClientRect failed", _hWindow, error, Marshal.GetPInvokeErrorMessage(error), Environment.CurrentManagedThreadId);
+                    var error = new Win32Exception();
+                    _logger.LogWithHWndAndError(LogLevel.Error, "GetClientRect failed", _hWindow, error.ToString(), Environment.CurrentManagedThreadId);
                     return false;
                 }
             }
 
             {
-                var result = User32.AdjustWindowRect(ref clientRect, style, false);
+                var result = User32.AdjustWindowRectExForDpi(ref clientRect, style, false, 0, 96);
                 if (!result)
                 {
-                    var error = Marshal.GetLastPInvokeError();
-                    _logger.LogWithHWndAndErrorId(LogLevel.Error, "AdjustWindowRect failed", _hWindow, error, Marshal.GetPInvokeErrorMessage(error), Environment.CurrentManagedThreadId);
+                    var error = new Win32Exception();
+                    _logger.LogWithHWndAndError(LogLevel.Error, "AdjustWindowRectExForDpi failed", _hWindow, error.ToString(), Environment.CurrentManagedThreadId);
                     return false;
                 }
             }
 
             {
                 var (result, error) = SetWindowLong(-16, new nint(style)); //GWL_STYLE
-                if (result == nint.Zero && error != 0)
+                if (result == nint.Zero && error.NativeErrorCode != 0)
                 {
-                    _logger.LogWithHWndAndErrorId(LogLevel.Error, "SetWindowLong failed", _hWindow, error, Marshal.GetPInvokeErrorMessage(error), Environment.CurrentManagedThreadId);
+                    _logger.LogWithHWndAndError(LogLevel.Error, "SetWindowLong failed", _hWindow, error.ToString(), Environment.CurrentManagedThreadId);
                     return false;
                 }
             }
@@ -336,8 +405,8 @@ internal class NativeWindow : IWindow
 
                 if (!result)
                 {
-                    var error = Marshal.GetLastPInvokeError();
-                    _logger.LogWithHWndAndErrorId(LogLevel.Error, "SetWindowPos failed", _hWindow, error, Marshal.GetPInvokeErrorMessage(error), Environment.CurrentManagedThreadId);
+                    var error = new Win32Exception();
+                    _logger.LogWithHWndAndError(LogLevel.Error, "SetWindowPos failed", _hWindow, error.ToString(), Environment.CurrentManagedThreadId);
                     return false;
                 }
             }
@@ -346,7 +415,7 @@ internal class NativeWindow : IWindow
         }).Result;
     }
 
-    private (nint, int) SetWindowLong(
+    private (nint, Win32Exception) SetWindowLong(
         int nIndex,
         nint dwNewLong
     )
@@ -357,7 +426,7 @@ internal class NativeWindow : IWindow
             Environment.Is64BitProcess
                 ? User32.SetWindowLongPtrW(_hWindow, nIndex, dwNewLong)
                 : User32.SetWindowLongW(_hWindow, nIndex, dwNewLong);
-        var error = Marshal.GetLastPInvokeError();
+        var error = new Win32Exception();
 
         return (result, error);
     }

@@ -1,4 +1,5 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.ComponentModel;
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using Momiji.Core.Buffer;
 using Momiji.Internal.Log;
@@ -22,11 +23,13 @@ internal class WindowClass : IDisposable
     internal WindowClass(
         ILoggerFactory loggerFactory,
         PinnedDelegate<User32.WNDPROC> wndProc,
-        User32.WNDCLASSEX.CS cs = User32.WNDCLASSEX.CS.NONE
+        int cs
     )
     {
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<WindowClass>();
+
+        var className = nameof(WindowClass) + Guid.NewGuid().ToString();
 
         _windowClass = new User32.WNDCLASSEX
         {
@@ -34,15 +37,16 @@ internal class WindowClass : IDisposable
             style = cs,
             lpfnWndProc = wndProc.FunctionPointer,
             hInstance = Kernel32.GetModuleHandleW(default),
-            lpszClassName = Marshal.StringToHGlobalUni(nameof(WindowClass) + Guid.NewGuid().ToString())
+            hbrBackground = 5, //COLOR_WINDOW
+            lpszClassName = Marshal.StringToHGlobalUni(className)
         };
 
         var atom = User32.RegisterClassExW(ref _windowClass);
-        var error = Marshal.GetLastPInvokeError();
-        _logger.LogWithLine(LogLevel.Information, $"RegisterClass {_windowClass} {atom} {error}", Environment.CurrentManagedThreadId);
+        var error = new Win32Exception();
+        _logger.LogWithError(LogLevel.Information, $"RegisterClass [windowClass:{_windowClass}][className:{className}][atom:{atom}]", error.ToString(), Environment.CurrentManagedThreadId);
         if (atom == 0)
         {
-            throw new WindowException($"RegisterClass failed [{error} {Marshal.GetPInvokeErrorMessage(error)}]");
+            throw new WindowException("RegisterClass failed", error);
         }
     }
 
@@ -71,8 +75,8 @@ internal class WindowClass : IDisposable
 
         //クローズしていないウインドウが残っていると失敗する
         var result = User32.UnregisterClassW(_windowClass.lpszClassName, _windowClass.hInstance);
-        var error = Marshal.GetLastPInvokeError();
-        _logger.LogWithErrorId(LogLevel.Information, $"UnregisterClass {_windowClass.lpszClassName} {result}", error, Marshal.GetPInvokeErrorMessage(error), Environment.CurrentManagedThreadId);
+        var error = new Win32Exception();
+        _logger.LogWithError(LogLevel.Information, $"UnregisterClass {_windowClass.lpszClassName} {result}", error.ToString(), Environment.CurrentManagedThreadId);
 
         Marshal.FreeHGlobal(_windowClass.lpszClassName);
 
