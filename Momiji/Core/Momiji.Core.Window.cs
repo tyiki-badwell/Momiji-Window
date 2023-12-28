@@ -27,17 +27,20 @@ public interface IWindowManager : IDisposable, IAsyncDisposable
     public delegate nint OnMessage(IWindow sender, int msg, nint wParam, nint lParam, out bool handled);
 
     public IWindow CreateWindow(
+        string windowTitle,
         OnMessage? onMessage = default
     );
 
     public IWindow CreateWindow(
         IWindow parent,
+        string windowTitle,
         OnMessage? onMessage = default
     );
 
     public IWindow CreateChildWindow(
         IWindow parent,
         string className,
+        string windowTitle,
         OnMessage? onMessage = default
     );
 
@@ -78,5 +81,9 @@ public interface IWindow
         int nMsg,
         nint wParam,
         nint lParam
+    );
+
+    bool ReplyMessage(
+        nint lResult
     );
 }

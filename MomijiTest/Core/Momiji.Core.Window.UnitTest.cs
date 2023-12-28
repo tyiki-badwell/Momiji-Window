@@ -95,7 +95,7 @@ public class WindowUnitTest : IDisposable
         await using var manager = new WindowManager(CreateConfiguration(), _loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
-        var window = manager.CreateWindow();
+        var window = manager.CreateWindow("window");
         window.Move(0, 0, 100, 100, true);
         window.Show(1);
         window.Move(100, 100, 100, 100, true);
@@ -130,7 +130,7 @@ public class WindowUnitTest : IDisposable
 
         var canClose = false;
 
-        var window = manager.CreateWindow((IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
+        var window = manager.CreateWindow("window", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
             handled = false;
 
             switch (msg)
@@ -170,13 +170,13 @@ public class WindowUnitTest : IDisposable
         await using var manager = new WindowManager(CreateConfiguration(), _loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
-        var window = manager.CreateWindow((IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
+        var window = manager.CreateWindow("window", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
             handled = false;
             _logger.LogInformation($"on message {msg:X} {wParam:X} {lParam:X}");
 
             if (msg == 0x0001) //WM_CREATE
             {
-                var child = manager.CreateChildWindow(sender, "EDIT", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
+                var child = manager.CreateChildWindow(sender, "EDIT", "child", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
                     handled = false;
                     _logger.LogInformation($"child on message {msg:X} {wParam:X} {lParam:X}");
                     return 0;
@@ -200,14 +200,14 @@ public class WindowUnitTest : IDisposable
 
         try
         {
-            var window = manager.CreateWindow((IWindow sender, int msg, nint wParam, nint lParam, out bool handled) =>
+            var window = manager.CreateWindow("window", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) =>
             {
                 handled = false;
                 _logger.LogInformation($"on message {msg:X} {wParam:X} {lParam:X}");
 
                 if (msg == 0x0001) //WM_CREATE
                 {
-                    var child = manager.CreateChildWindow(sender, "EDITXXX", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) =>
+                    var child = manager.CreateChildWindow(sender, "EDITXXX", "child", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) =>
                     {
                         handled = false;
                         _logger.LogInformation($"child on message {msg:X} {wParam:X} {lParam:X}");
@@ -241,7 +241,7 @@ public class WindowUnitTest : IDisposable
         await using var manager = new WindowManager(CreateConfiguration(), _loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
-        var window = manager.CreateWindow((IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
+        var window = manager.CreateWindow("window", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
             handled = false;
             if (msg == 0)
             {
@@ -286,7 +286,7 @@ public class WindowUnitTest : IDisposable
         await using var manager = new WindowManager(CreateConfiguration(), _loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
-        var window = manager.CreateWindow((IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
+        var window = manager.CreateWindow("window", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
             handled = false;
             if (msg == 0)
             {
@@ -324,7 +324,7 @@ public class WindowUnitTest : IDisposable
         await using var manager = new WindowManager(CreateConfiguration(), _loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
-        var window = manager.CreateWindow();
+        var window = manager.CreateWindow("window");
 
         window.SetWindowStyle(0);
 
@@ -348,7 +348,7 @@ public class WindowUnitTest : IDisposable
         await using var manager = new WindowManager(CreateConfiguration(), _loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
-        var window = manager.CreateWindow();
+        var window = manager.CreateWindow("window");
 
         {
             var result = await window.DispatchAsync(() => { return 999; });
@@ -382,25 +382,25 @@ public class WindowUnitTest : IDisposable
         var taskB = managerB.StartAsync(tokenSource.Token);
 
 
-        var windowA = managerA.CreateWindow((IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
+        var windowA = managerA.CreateWindow("windowA", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
             handled = false;
             _logger.LogInformation($"PARENT on message {msg:X} {wParam:X} {lParam:X}");
             return 0;
         });
 
-        var buttonA = managerA.CreateChildWindow(windowA, "BUTTON", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
+        var buttonA = managerA.CreateChildWindow(windowA, "BUTTON", "buttonA", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
             handled = false;
             _logger.LogInformation($"CHILD A on message {msg:X} {wParam:X} {lParam:X}");
             return 0;
         });
 
-        var windowAA = managerA.CreateWindow(windowA, (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
+        var windowAA = managerA.CreateWindow(windowA, "windowAA", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
             handled = false;
             _logger.LogInformation($"CHILD W on message {msg:X} {wParam:X} {lParam:X}");
             return 0;
         });
 
-        var buttonB = managerB.CreateChildWindow(windowA, "BUTTON", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
+        var buttonB = managerB.CreateChildWindow(windowA, "BUTTON", "buttonB", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
             handled = false;
             _logger.LogInformation($"CHILD B on message {msg:X} {wParam:X} {lParam:X}");
             return 0;

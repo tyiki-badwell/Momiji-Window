@@ -85,8 +85,53 @@ internal class NativeWindow : IWindow
         }
     }
 
+    internal class StringToHGlobalUni : IDisposable
+    {
+        public readonly nint Handle;
+
+        private bool _disposed;
+
+        public StringToHGlobalUni(
+            string text
+        )
+        {
+            Handle = Marshal.StringToHGlobalUni(text);
+        }
+
+        ~StringToHGlobalUni()
+        {
+            Dispose(false);
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (disposing)
+            {
+            }
+
+            if (Handle != nint.Zero)
+            {
+                Marshal.FreeHGlobal(Handle);
+            }
+
+            _disposed = true;
+        }
+    }
+
     internal void CreateWindow(
         WindowClass windowClass,
+        string windowTitle,
         NativeWindow? parent = default
     )
     {
@@ -94,9 +139,10 @@ internal class NativeWindow : IWindow
         var task = DispatchAsync(() =>
         {
             //TODO パラメーターにする
+            var exStyle = 0;
             var style = 0;
-            var parentHWnd = User32.HWND.None;
 
+            var parentHWnd = User32.HWND.None;
             if (parent == null)
             {
                 style = unchecked((int)0x10000000); //WS_VISIBLE
@@ -120,12 +166,15 @@ internal class NativeWindow : IWindow
             //TODO DPI awareness 
             using var behaviorSetter = new MixedThreadDpiHostingBehaviorSetter(_loggerFactory);
 
+            //ウインドウタイトル
+            using var lpszWindowName = new StringToHGlobalUni(windowTitle);
+
             _logger.LogWithLine(LogLevel.Trace, "CreateWindowEx", Environment.CurrentManagedThreadId);
             var hWindow =
                 User32.CreateWindowExW(
-                    0,
+                    exStyle,
                     windowClass.ClassName,
-                    nint.Zero, //TODO ウインドウタイトル
+                    lpszWindowName.Handle, 
                     style,
                     CW_USEDEFAULT,
                     CW_USEDEFAULT,
@@ -156,7 +205,8 @@ internal class NativeWindow : IWindow
 
     internal void CreateWindow(
         NativeWindow parent,
-        string className
+        string className,
+        string windowTitle
     )
     {
         var parentHWnd = parent._hWindow;
@@ -165,51 +215,46 @@ internal class NativeWindow : IWindow
         var task = DispatchAsync(() =>
         {
             //TODO パラメーターにする
+            var exStyle = 0;
             var style = 0;
+
             style = unchecked((int)0x10000000); //WS_VISIBLE
             style |= unchecked((int)0x40000000); //WS_CHILD
 
             var CW_USEDEFAULT = unchecked((int)0x80000000);
 
-            var lpszClassName = Marshal.StringToHGlobalUni(className);
+            using var lpszClassName = new StringToHGlobalUni(className);
+            using var lpszWindowName = new StringToHGlobalUni(windowTitle);
 
             _logger.LogWithLine(LogLevel.Trace, $"CreateWindowEx {className}", Environment.CurrentManagedThreadId);
-
-            try
+            var hWindow =
+                User32.CreateWindowExW(
+                    exStyle,
+                    lpszClassName.Handle,
+                    lpszWindowName.Handle,
+                    style,
+                    CW_USEDEFAULT,
+                    CW_USEDEFAULT,
+                    CW_USEDEFAULT,
+                    CW_USEDEFAULT,
+                    parentHWnd,
+                    nint.Zero, //TODO 子ウインドウ識別子
+                    nint.Zero,
+                    nint.Zero
+                );
+            var error = new Win32Exception();
+            _logger.LogWithHWndAndError(LogLevel.Information, "CreateWindowEx result", hWindow, error.ToString(), Environment.CurrentManagedThreadId);
+            if (hWindow.Handle == User32.HWND.None.Handle)
             {
-                var hWindow =
-                    User32.CreateWindowExW(
-                        0,
-                        lpszClassName,
-                        nint.Zero, //TODO ウインドウタイトル
-                        style,
-                        CW_USEDEFAULT,
-                        CW_USEDEFAULT,
-                        CW_USEDEFAULT,
-                        CW_USEDEFAULT,
-                        parentHWnd,
-                        nint.Zero, //TODO 子ウインドウ識別子
-                        nint.Zero,
-                        nint.Zero
-                    );
-                var error = new Win32Exception();
-                _logger.LogWithHWndAndError(LogLevel.Information, "CreateWindowEx result", hWindow, error.ToString(), Environment.CurrentManagedThreadId);
-                if (hWindow.Handle == User32.HWND.None.Handle)
-                {
-                    hWindow = default;
-                    _windowManager.ThrowIfOccurredInWndProc();
-                    throw new WindowException($"CreateWindowEx failed [{className}]", error);
-                }
-
-                var behavior = User32.GetWindowDpiHostingBehavior(hWindow);
-                _logger.LogWithLine(LogLevel.Trace, $"GetWindowDpiHostingBehavior {behavior}", Environment.CurrentManagedThreadId);
-
-                return hWindow;
+                hWindow = default;
+                _windowManager.ThrowIfOccurredInWndProc();
+                throw new WindowException($"CreateWindowEx failed [{className}]", error);
             }
-            finally
-            {
-                Marshal.FreeHGlobal(lpszClassName);
-            }
+
+            var behavior = User32.GetWindowDpiHostingBehavior(hWindow);
+            _logger.LogWithLine(LogLevel.Trace, $"GetWindowDpiHostingBehavior {behavior}", Environment.CurrentManagedThreadId);
+
+            return hWindow;
         });
         var handle = task.Result;
         _logger.LogWithHWnd(LogLevel.Information, "CreateWindow end", _hWindow, Environment.CurrentManagedThreadId);
@@ -277,6 +322,24 @@ internal class NativeWindow : IWindow
                 throw new WindowException("PostMessageW failed", error);
             }
         }
+    }
+
+    public bool ReplyMessage(
+        nint lResult
+    )
+    {
+        //TODO 何でもReplyMessageしてOKというわけではないので、チェックが要る？自己責任？（例：GetWindowTextでWM_GETTEXTが来たときの戻り値が期待値と異なってしまう）
+        var ret = User32.InSendMessageEx(nint.Zero);
+        _logger.LogWithLine(LogLevel.Trace, $"InSendMessageEx {ret:X}", Environment.CurrentManagedThreadId);
+        if ((ret & (0x00000008 | 0x00000001)) == 0x00000001) //ISMEX_SEND
+        {
+            _logger.LogWithLine(LogLevel.Trace, "ISMEX_SEND", Environment.CurrentManagedThreadId);
+            var ret2 = User32.ReplyMessage(lResult);
+            var error = new Win32Exception();
+            _logger.LogWithHWndAndError(LogLevel.Trace, $"ReplyMessage {ret2}", _hWindow, error.ToString(), Environment.CurrentManagedThreadId);
+            return ret2;
+        }
+        return false;
     }
 
     public bool Move(

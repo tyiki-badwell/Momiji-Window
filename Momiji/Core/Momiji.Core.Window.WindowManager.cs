@@ -254,6 +254,7 @@ public class WindowManager : IWindowManager
     }
 
     public IWindow CreateWindow(
+        string windowTitle,
         IWindowManager.OnMessage? onMessage = default
     )
     {
@@ -264,13 +265,14 @@ public class WindowManager : IWindowManager
                 onMessage
             );
 
-        window.CreateWindow(_windowClass);
+        window.CreateWindow(_windowClass, windowTitle);
 
         return window;
     }
 
     public IWindow CreateWindow(
         IWindow parent,
+        string windowTitle,
         IWindowManager.OnMessage? onMessage = default
     )
     {
@@ -281,7 +283,7 @@ public class WindowManager : IWindowManager
                 onMessage
             );
 
-        window.CreateWindow(_windowClass, (parent as NativeWindow)!);
+        window.CreateWindow(_windowClass, windowTitle, (parent as NativeWindow)!);
 
         return window;
     }
@@ -289,6 +291,7 @@ public class WindowManager : IWindowManager
     public IWindow CreateChildWindow(
         IWindow parent,
         string className,
+        string windowTitle,
         IWindowManager.OnMessage? onMessage = default
     )
     {
@@ -299,7 +302,7 @@ public class WindowManager : IWindowManager
                 onMessage
             );
 
-        window.CreateWindow((parent as NativeWindow)!, className);
+        window.CreateWindow((parent as NativeWindow)!, className, windowTitle);
 
         return window;
     }
@@ -813,12 +816,12 @@ public class WindowManager : IWindowManager
                 var result = window.WndProc(msg, wParam, lParam, out var handled);
                 if (handled)
                 {
-                    _logger.LogWithLine(LogLevel.Trace, $"handled msg:{msg:X} result:{result}", Environment.CurrentManagedThreadId);
+                    _logger.LogWithLine(LogLevel.Trace, $"handled msg:[{msg:X}] result:[{result}]", Environment.CurrentManagedThreadId);
                     return result;
                 }
                 else
                 {
-                    _logger.LogWithLine(LogLevel.Trace, $"no handled msg:{msg:X} result:{result}", Environment.CurrentManagedThreadId);
+                    _logger.LogWithLine(LogLevel.Trace, $"no handled msg:[{msg:X}] result:[{result}]", Environment.CurrentManagedThreadId);
                 }
             }
             else
@@ -858,19 +861,6 @@ public class WindowManager : IWindowManager
 
     private nint WndProcBefore(User32.HWND hwnd, uint msg, nint wParam, nint lParam, out bool handled)
     {
-        {
-            var ret = User32.InSendMessageEx(nint.Zero);
-            _logger.LogWithLine(LogLevel.Trace, $"InSendMessageEx {ret:X}", Environment.CurrentManagedThreadId);
-            if ((ret & (0x00000008 | 0x00000001)) == 0x00000001) //ISMEX_SEND
-            {
-                _logger.LogWithLine(LogLevel.Trace, "ISMEX_SEND", Environment.CurrentManagedThreadId);
-                //TODO ISMEX_SENDに返す値を指定できるようにする　どうやってここに渡す？
-                var ret2 = User32.ReplyMessage(new nint(1));
-                var error = new Win32Exception();
-                _logger.LogWithHWndAndError(LogLevel.Trace, $"ReplyMessage {ret2}", hwnd, error.ToString(), Environment.CurrentManagedThreadId);
-            }
-        }
-
         {
             var context = User32.GetThreadDpiAwarenessContext();
             var awareness = User32.GetAwarenessFromDpiAwarenessContext(context);
