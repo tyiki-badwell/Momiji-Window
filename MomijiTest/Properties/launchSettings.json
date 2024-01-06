@@ -1,6 +1,6 @@
 {
   "profiles": {
-    "momijiXunit": {
+    "MomijiTest": {
       "commandName": "Project",
       "nativeDebugging": true
     }

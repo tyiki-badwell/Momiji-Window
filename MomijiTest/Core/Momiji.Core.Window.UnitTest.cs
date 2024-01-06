@@ -130,22 +130,18 @@ public class WindowUnitTest : IDisposable
 
         var canClose = false;
 
-        var window = manager.CreateWindow("window", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
-            handled = false;
-
-            switch (msg)
+        var window = manager.CreateWindow("window", (sender, message) => {
+            switch (message.Msg)
             {
                 case 0x0010://WM_CLOSE
                     _logger.LogInformation($"WM_CLOSE canClose {canClose}");
                     if (!canClose)
                     {
-                        handled = true;
+                        message.Handled = true;
                     }
 
                     break;
             }
-
-            return 0;
         });
         window.Show(1);
 
@@ -170,20 +166,15 @@ public class WindowUnitTest : IDisposable
         await using var manager = new WindowManager(CreateConfiguration(), _loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
-        var window = manager.CreateWindow("window", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
-            handled = false;
-            _logger.LogInformation($"on message {msg:X} {wParam:X} {lParam:X}");
+        var window = manager.CreateWindow("window", (sender, message) => {
+            _logger.LogInformation($"on message {message}");
 
-            if (msg == 0x0001) //WM_CREATE
+            if (message.Msg == 0x0001) //WM_CREATE
             {
-                var child = manager.CreateChildWindow(sender, "EDIT", "child", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
-                    handled = false;
-                    _logger.LogInformation($"child on message {msg:X} {wParam:X} {lParam:X}");
-                    return 0;
+                var child = manager.CreateChildWindow(sender, "EDIT", "child", (sender, message) => {
+                    _logger.LogInformation($"child on message {message}");
                 });
             }
-
-            return 0;
         });
 
         tokenSource.Cancel();
@@ -200,22 +191,17 @@ public class WindowUnitTest : IDisposable
 
         try
         {
-            var window = manager.CreateWindow("window", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) =>
+            var window = manager.CreateWindow("window", (sender, message) =>
             {
-                handled = false;
-                _logger.LogInformation($"on message {msg:X} {wParam:X} {lParam:X}");
+                _logger.LogInformation($"on message {message}");
 
-                if (msg == 0x0001) //WM_CREATE
+                if (message.Msg == 0x0001) //WM_CREATE
                 {
-                    var child = manager.CreateChildWindow(sender, "EDITXXX", "child", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) =>
+                    var child = manager.CreateChildWindow(sender, "EDITXXX", "child", (sender, message) =>
                     {
-                        handled = false;
-                        _logger.LogInformation($"child on message {msg:X} {wParam:X} {lParam:X}");
-                        return 0;
+                        _logger.LogInformation($"child on message {message}");
                     });
                 }
-
-                return 0;
             });
 
             Assert.Fail("エラーが発生しなかった");
@@ -233,87 +219,131 @@ public class WindowUnitTest : IDisposable
         await task;
     }
 
-    [TestMethod]
-    public async Task TestSendMessage()
+    public enum MethodType
     {
-        using var tokenSource = new CancellationTokenSource();
+        Send,
+        Post
+    }
 
-        await using var manager = new WindowManager(CreateConfiguration(), _loggerFactory);
-        var task = manager.StartAsync(tokenSource.Token);
-
-        var window = manager.CreateWindow("window", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
-            handled = false;
-            if (msg == 0)
-            {
-                _logger.LogInformation($"on message {msg:X} {wParam:X} {lParam:X}");
-                handled = true;
-                return 2;
-            }
-            return 0;
-        });
-
-        {
-            var result = window.SendMessage(0, 1, 2);
-            //TODO ISMEX_SENDに返す値を指定できるようにする？
-            _logger.LogInformation($"SendMessage result {result}");
-        }
-
-        {
-            var result = await window.DispatchAsync(() => { return window.SendMessage(0, 3, 4); });
-            _logger.LogInformation($"SendMessage result {result}");
-        }
-
-        {
-            async Task<nint> a()
-            {
-                var result = window.SendMessage(0, 5, 6);
-                await Task.Delay(0);
-                return result;
-            }
-            var result = await a();
-            _logger.LogInformation($"SendMessage result {result}");
-        }
-
-        tokenSource.Cancel();
-        await task;
+    public enum CallType
+    {
+        Direct,
+        InDispatch,
+        InTask,
     }
 
     [TestMethod]
-    public async Task TestPostMessage()
+    [DataRow(MethodType.Send, CallType.Direct, CallType.Direct)]
+    [DataRow(MethodType.Send, CallType.Direct, CallType.InDispatch)]
+    [DataRow(MethodType.Send, CallType.Direct, CallType.InTask)]
+    [DataRow(MethodType.Send, CallType.InDispatch, CallType.Direct)]
+    [DataRow(MethodType.Send, CallType.InDispatch, CallType.InDispatch)]
+    [DataRow(MethodType.Send, CallType.InDispatch, CallType.InTask)]
+    [DataRow(MethodType.Send, CallType.InTask, CallType.Direct)]
+    [DataRow(MethodType.Send, CallType.InTask, CallType.InDispatch)]
+    [DataRow(MethodType.Send, CallType.InTask, CallType.InTask)]
+    [DataRow(MethodType.Post, CallType.Direct, CallType.Direct)]
+    [DataRow(MethodType.Post, CallType.Direct, CallType.InDispatch)]
+    [DataRow(MethodType.Post, CallType.Direct, CallType.InTask)]
+    [DataRow(MethodType.Post, CallType.InDispatch, CallType.Direct)]
+    [DataRow(MethodType.Post, CallType.InDispatch, CallType.InDispatch)]
+    [DataRow(MethodType.Post, CallType.InDispatch, CallType.InTask)]
+    [DataRow(MethodType.Post, CallType.InTask, CallType.Direct)]
+    [DataRow(MethodType.Post, CallType.InTask, CallType.InDispatch)]
+    [DataRow(MethodType.Post, CallType.InTask, CallType.InTask)]
+    public async Task TestMessage(
+        MethodType methodType,
+        CallType start,
+        CallType inMessage
+    )
     {
         using var tokenSource = new CancellationTokenSource();
 
         await using var manager = new WindowManager(CreateConfiguration(), _loggerFactory);
         var task = manager.StartAsync(tokenSource.Token);
 
-        var window = manager.CreateWindow("window", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
-            handled = false;
-            if (msg == 0)
+        nint method(IWindow window, nint wParam, nint lParam)
+        {
+            var result = nint.Zero;
+            _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] call start ===============================");
+            switch (methodType)
             {
-                _logger.LogInformation($"on message {msg:X} {wParam:X} {lParam:X}");
+                case MethodType.Send:
+                    result = window.SendMessage(0, wParam, lParam);
+                    break;
+
+                case MethodType.Post:
+                    window.PostMessage(0, wParam, lParam);
+                    break;
             }
-            return 0;
+            _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] call end ===============================");
+            return result;
+        };
+
+        async ValueTask<nint> call(CallType callType, IWindow window, nint wParam, nint lParam)
+        {
+            var result = nint.Zero;
+
+            switch (callType)
+            {
+                case CallType.Direct:
+                    result = method(window, wParam, lParam);
+                    break;
+
+                case CallType.InDispatch:
+                    result = await window.DispatchAsync((window) => method(window, wParam, lParam));
+                    break;
+
+                case CallType.InTask:
+                    async ValueTask<nint> a()
+                    {
+                        var result = method(window, wParam, lParam);
+                        await Task.Delay(0);
+                        return result;
+                    };
+                    result = await a();
+                    break;
+
+            }
+
+            return result;
+        };
+
+        using var cde = new CountdownEvent(1);
+
+        var window = manager.CreateWindow("window", async (sender, message) => {
+            if (message.Msg == 0)
+            {
+                if (message.LParam == 999)
+                {
+                    _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] REENTRANT on message [{message}] [cde:{cde.CurrentCount}]");
+                }
+                else
+                {
+                    _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] on message [{message}] [cde:{cde.CurrentCount}]");
+                    var result = await call(inMessage, sender, message.WParam * 10, 999);
+                    cde.Signal();
+                    _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] result [{result}] [cde:{cde.CurrentCount}]");
+                }
+
+                message.Handled = true;
+                message.Result = message.LParam;
+            }
         });
 
         {
-            window.PostMessage(0, 1, 2);
+            var result = await call(start, window, 1, 2);
+            _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] result [{result}] [cde:{cde.CurrentCount}]");
         }
 
-        {
-            var result = await window.DispatchAsync(() => { window.PostMessage(0, 3, 4); return 0; });
-        }
-
-        {
-            async Task a()
-            {
-                window.PostMessage(0, 5, 6);
-                await Task.Delay(0);
-            }
-            await a();
-        }
+        _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] cde wait start [cde:{cde.CurrentCount}] ===============================");
+        cde.Wait();
+        _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] cde wait end [cde:{cde.CurrentCount}] ===============================");
 
         tokenSource.Cancel();
+        _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] manager await start ===============================");
         await task;
+        _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] manager await end ===============================");
     }
 
     [TestMethod]
@@ -329,7 +359,7 @@ public class WindowUnitTest : IDisposable
         window.SetWindowStyle(0);
 
         {
-            var result = await window.DispatchAsync(() => {
+            var result = await window.DispatchAsync((window) => {
                 //immidiate mode
                 return window.SetWindowStyle(0);
             });
@@ -351,17 +381,24 @@ public class WindowUnitTest : IDisposable
         var window = manager.CreateWindow("window");
 
         {
-            var result = await window.DispatchAsync(() => { return 999; });
+            _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] Dispatch start ===============================");
+            var result = await window.DispatchAsync((window) => { return 999; });
+            _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] Dispatch end ===============================");
             Assert.AreEqual(999, result);
         }
 
         {
-            var result = await await window.DispatchAsync(async () => {
-                return await window.DispatchAsync(() =>
+            _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] Dispatch start ===============================");
+            var result = await await window.DispatchAsync(async (window) => {
+                _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] Dispatch 2 start ===============================");
+                var result = await window.DispatchAsync((window) =>
                 { //re-entrant
                     return 888;
                 });
+                _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] Dispatch 2 end ===============================");
+                return result;
             });
+            _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] Dispatch end ===============================");
             Assert.AreEqual(888, result);
         }
 
@@ -382,28 +419,20 @@ public class WindowUnitTest : IDisposable
         var taskB = managerB.StartAsync(tokenSource.Token);
 
 
-        var windowA = managerA.CreateWindow("windowA", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
-            handled = false;
-            _logger.LogInformation($"PARENT on message {msg:X} {wParam:X} {lParam:X}");
-            return 0;
+        var windowA = managerA.CreateWindow("windowA", (sender, message) => {
+            _logger.LogInformation($"PARENT on message {message}");
         });
 
-        var buttonA = managerA.CreateChildWindow(windowA, "BUTTON", "buttonA", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
-            handled = false;
-            _logger.LogInformation($"CHILD A on message {msg:X} {wParam:X} {lParam:X}");
-            return 0;
+        var buttonA = managerA.CreateChildWindow(windowA, "BUTTON", "buttonA", (sender, message) => {
+            _logger.LogInformation($"CHILD A on message {message}");
         });
 
-        var windowAA = managerA.CreateWindow(windowA, "windowAA", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
-            handled = false;
-            _logger.LogInformation($"CHILD W on message {msg:X} {wParam:X} {lParam:X}");
-            return 0;
+        var windowAA = managerA.CreateWindow(windowA, "windowAA", (sender, message) => {
+            _logger.LogInformation($"CHILD W on message {message}");
         });
 
-        var buttonB = managerB.CreateChildWindow(windowA, "BUTTON", "buttonB", (IWindow sender, int msg, nint wParam, nint lParam, out bool handled) => {
-            handled = false;
-            _logger.LogInformation($"CHILD B on message {msg:X} {wParam:X} {lParam:X}");
-            return 0;
+        var buttonB = managerB.CreateChildWindow(windowA, "BUTTON", "buttonB", (sender, message) => {
+            _logger.LogInformation($"CHILD B on message {message}");
         });
 
         await Task.Delay(1000);

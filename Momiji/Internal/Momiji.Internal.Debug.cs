@@ -349,4 +349,29 @@ public class WindowDebug
             logger.LogWithError(LogLevel.Information, $"[window debug] GetProcessInformation ProcessPowerThrottling:{result} {buf.SizeOf} {buf.Target.Version} {buf.Target.ControlMask} {buf.Target.StateMask}", error.ToString(), Environment.CurrentManagedThreadId);
         }
     }
+
+    internal static void CheckDpiAwarenessContext(
+        ILoggerFactory loggerFactory,
+        User32.HWND hwnd
+    )
+    {
+        var logger = loggerFactory.CreateLogger<WindowDebug>();
+
+        {
+            var context = User32.GetThreadDpiAwarenessContext();
+            var awareness = User32.GetAwarenessFromDpiAwarenessContext(context);
+            var dpi = User32.GetDpiFromDpiAwarenessContext(context);
+
+            logger.LogWithHWnd(LogLevel.Trace, $"GetThreadDpiAwarenessContext [context:{context}][awareness:{awareness}][dpi:{dpi}]", hwnd, Environment.CurrentManagedThreadId);
+        }
+
+        {
+            var context = User32.GetWindowDpiAwarenessContext(hwnd);
+            var awareness = User32.GetAwarenessFromDpiAwarenessContext(context);
+            var dpi = User32.GetDpiFromDpiAwarenessContext(context);
+            var dpiForWindow = User32.GetDpiForWindow(hwnd);
+
+            logger.LogWithHWnd(LogLevel.Trace, $"GetWindowDpiAwarenessContext [context:{context}][awareness:{awareness}][dpi:{dpi}][dpiForWindow:{dpiForWindow}]", hwnd, Environment.CurrentManagedThreadId);
+        }
+    }
 }

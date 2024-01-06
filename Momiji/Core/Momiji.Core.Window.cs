@@ -24,7 +24,36 @@ public interface IWindowManager : IDisposable, IAsyncDisposable
     Task StartAsync(CancellationToken stoppingToken);
     Task CancelAsync();
 
-    public delegate nint OnMessage(IWindow sender, int msg, nint wParam, nint lParam, out bool handled);
+    public record class Message
+    {
+        public int Msg
+        {
+            get; init;
+        }
+        public nint WParam
+        {
+            get; init;
+        }
+        public nint LParam
+        {
+            get; init;
+        }
+        public nint Result
+        {
+            get; set;
+        }
+
+        public bool Handled
+        {
+            get; set;
+        }
+        public override string ToString()
+        {
+            return $"[Msg:{Msg:X}][WParam:{WParam:X}][LParam:{LParam:X}][Result:{Result:X}][Handled:{Handled}]";
+        }
+    }
+
+    public delegate void OnMessage(IWindow sender, Message message);
 
     public IWindow CreateWindow(
         string windowTitle,
@@ -53,7 +82,7 @@ public interface IWindow
     {
         get;
     }
-    Task<T> DispatchAsync<T>(Func<T> item);
+    Task<T> DispatchAsync<T>(Func<IWindow, T> item);
     bool Close();
     bool Move(
         int x,

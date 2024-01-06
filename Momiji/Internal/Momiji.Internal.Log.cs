@@ -36,7 +36,7 @@ internal static partial class LogDefine
     [LoggerMessage(
         Message = "thread:[{threadId:X}] hwnd:[{hwnd}] {message} msg:[{msg:X}] wParam:[{wParam:X}] lParam:[{lParam:X}] ({file}:{line} {member})"
     )]
-    internal static partial void LogWithMsg(this ILogger logger, LogLevel logLevel, string message, User32.HWND hwnd, uint msg, nint wParam, nint lParam, int threadId,
+    internal static partial void LogWithMsg(this ILogger logger, LogLevel logLevel, string message, User32.HWND hwnd, int msg, nint wParam, nint lParam, int threadId,
         [CallerFilePath] string file = "",
         [CallerLineNumber] int line = 0,
         [CallerMemberName] string member = ""

@@ -33,7 +33,8 @@ public class Program
         var buttonC = b.Item3.CreateChildWindow(windowA, "BUTTON", "buttonC");
 
         //WPFコンテンツを挿入する
-        await windowA.DispatchAsync(() => {
+        //AウインドウのスレッドでAウインドウに追加
+        await windowA.DispatchAsync((window) => {
             var style = 0;
             style = unchecked((int)0x10000000); //WS_VISIBLE
             style |= unchecked((int)0x40000000); //WS_CHILD
@@ -41,7 +42,7 @@ public class Program
             var param = new HwndSourceParameters("TestPage", 500, 500);
             param.SetPosition(200, 200);
             param.WindowStyle = style;
-            param.ParentWindow = windowB.Handle;
+            param.ParentWindow = window.Handle;
 
             var hwndSource = new HwndSource(param)
             {
