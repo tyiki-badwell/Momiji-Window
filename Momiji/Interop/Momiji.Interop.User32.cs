@@ -34,7 +34,7 @@ internal static partial class NativeMethods
         */
 
         public int cbSize;
-        public int style;
+        public uint style;
         public nint lpfnWndProc;
         public int cbClsExtra;
         public int cbWndExtra;
@@ -139,10 +139,10 @@ internal static partial class NativeMethods
     [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     internal static partial HWND CreateWindowExW(
-        int dwExStyle,
+        uint dwExStyle,
         nint lpszClassName,
         nint lpszWindowName,
-        int style,
+        uint style,
         int x,
         int y,
         int width,

@@ -82,9 +82,9 @@ public interface IWindow
     {
         get;
     }
-    Task<T> DispatchAsync<T>(Func<IWindow, T> item);
+    ValueTask<T> DispatchAsync<T>(Func<IWindow, T> item);
     bool Close();
-    bool Move(
+    ValueTask<bool> MoveAsync(
         int x,
         int y,
         int width,
@@ -92,11 +92,11 @@ public interface IWindow
         bool repaint
     );
 
-    bool Show(
+    ValueTask<bool> ShowAsync(
         int cmdShow
     );
 
-    bool SetWindowStyle(
+    ValueTask<bool> SetWindowStyleAsync(
         int style
     );
 

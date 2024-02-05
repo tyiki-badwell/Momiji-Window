@@ -32,9 +32,14 @@ internal class NativeWindow : IWindow
         _onMessage = onMessage;
     }
 
-    public Task<T> DispatchAsync<T>(Func<IWindow, T> item)
+    public override string ToString()
     {
-        return _windowManager.DispatchAsync(this, item);
+        return $"NativeWindow[HWND:{_hWindow}]";
+    }
+
+    public ValueTask<T> DispatchAsync<T>(Func<IWindow, T> item)
+    {
+        return _windowManager.DispatchAsync(item, this);
     }
 
     internal class MixedThreadDpiHostingBehaviorSetter : IDisposable
@@ -125,7 +130,6 @@ internal class NativeWindow : IWindow
     }
 
     internal void CreateWindow(
-        WindowClass windowClass,
         string windowTitle,
         NativeWindow? parent = default
     )
@@ -134,26 +138,26 @@ internal class NativeWindow : IWindow
         var task = DispatchAsync((window) =>
         {
             //TODO パラメーターにする
-            var exStyle = 0;
-            var style = 0;
+            var exStyle = 0U;
+            var style = 0U;
 
             var parentHWnd = User32.HWND.None;
             if (parent == null)
             {
-                style = unchecked((int)0x10000000); //WS_VISIBLE
-                                                    //style |= unchecked((int)0x80000000); //WS_POPUP
-                style |= unchecked((int)0x00C00000); //WS_CAPTION
-                style |= unchecked((int)0x00080000); //WS_SYSMENU
-                style |= unchecked((int)0x00040000); //WS_THICKFRAME
-                style |= unchecked((int)0x00020000); //WS_MINIMIZEBOX
-                style |= unchecked((int)0x00010000); //WS_MAXIMIZEBOX
+                style = 0x10000000U; //WS_VISIBLE
+                //style |= 0x80000000U; //WS_POPUP
+                style |= 0x00C00000U; //WS_CAPTION
+                style |= 0x00080000U; //WS_SYSMENU
+                style |= 0x00040000U; //WS_THICKFRAME
+                style |= 0x00020000U; //WS_MINIMIZEBOX
+                style |= 0x00010000U; //WS_MAXIMIZEBOX
             }
             else
             {
                 parentHWnd = parent._hWindow;
 
-                style = unchecked((int)0x10000000); //WS_VISIBLE
-                style |= unchecked((int)0x40000000); //WS_CHILD
+                style = 0x10000000U; //WS_VISIBLE
+                style |= 0x40000000U; //WS_CHILD
             }
 
             var CW_USEDEFAULT = unchecked((int)0x80000000);
@@ -164,7 +168,10 @@ internal class NativeWindow : IWindow
             //ウインドウタイトル
             using var lpszWindowName = new StringToHGlobalUni(windowTitle);
 
-            return _windowManager.WindowClassManager.CreateWindow(
+            //TODO WindowClassの取り出し方変える
+            var windowClass = _windowManager.WindowClassManager.WindowClass;
+
+            return CreateWindowImpl(
                 exStyle,
                 windowClass.ClassName,
                 lpszWindowName.Handle, 
@@ -178,8 +185,10 @@ internal class NativeWindow : IWindow
                 windowClass.HInstance
             );
         });
-        var handle = task.Result;
-        _logger.LogWithHWnd(LogLevel.Information, "CreateWindow end", _hWindow, Environment.CurrentManagedThreadId);
+
+        var handle = task.AsTask().Result;
+
+        _logger.LogWithHWnd(LogLevel.Information, $"CreateWindow end [{handle}]", _hWindow, Environment.CurrentManagedThreadId);
     }
 
     internal void CreateWindow(
@@ -194,18 +203,18 @@ internal class NativeWindow : IWindow
         var task = DispatchAsync((window) =>
         {
             //TODO パラメーターにする
-            var exStyle = 0;
-            var style = 0;
+            var exStyle = 0U;
+            var style = 0U;
 
-            style = unchecked((int)0x10000000); //WS_VISIBLE
-            style |= unchecked((int)0x40000000); //WS_CHILD
+            style = 0x10000000U; //WS_VISIBLE
+            style |= 0x40000000U; //WS_CHILD
 
             var CW_USEDEFAULT = unchecked((int)0x80000000);
 
             using var lpszClassName = new StringToHGlobalUni(className);
             using var lpszWindowName = new StringToHGlobalUni(windowTitle);
 
-            return _windowManager.WindowClassManager.CreateWindow(
+            return CreateWindowImpl(
                 exStyle,
                 lpszClassName.Handle,
                 lpszWindowName.Handle,
@@ -219,8 +228,54 @@ internal class NativeWindow : IWindow
                 nint.Zero
             );
         });
-        var handle = task.Result;
-        _logger.LogWithHWnd(LogLevel.Information, "CreateWindow end", _hWindow, Environment.CurrentManagedThreadId);
+
+        var handle = task.AsTask().Result;
+
+        _logger.LogWithHWnd(LogLevel.Information, $"CreateWindow end [{handle}]", _hWindow, Environment.CurrentManagedThreadId);
+    }
+
+    private User32.HWND CreateWindowImpl(
+        uint dwExStyle,
+        nint lpszClassName,
+        nint lpszWindowName,
+        uint style,
+        int x,
+        int y,
+        int width,
+        int height,
+        User32.HWND hwndParent,
+        nint hMenu,
+        nint hInst
+    )
+    {
+        _logger.LogWithLine(LogLevel.Trace, "CreateWindowEx", Environment.CurrentManagedThreadId);
+        var hWindow =
+            User32.CreateWindowExW(
+                dwExStyle,
+                lpszClassName,
+                lpszWindowName,
+                style,
+                x,
+                y,
+                width,
+                height,
+                hwndParent,
+                hMenu,
+                hInst,
+                nint.Zero
+            );
+        var error = new Win32Exception();
+        _logger.LogWithHWndAndError(LogLevel.Information, "CreateWindowEx result", hWindow, error.ToString(), Environment.CurrentManagedThreadId);
+        if (hWindow.Handle == User32.HWND.None.Handle)
+        {
+            _windowManager.WindowClassManager.ThrowIfOccurredInWndProc();
+            throw error;
+        }
+
+        var behavior = User32.GetWindowDpiHostingBehavior(hWindow);
+        _logger.LogWithLine(LogLevel.Trace, $"GetWindowDpiHostingBehavior {behavior}", Environment.CurrentManagedThreadId);
+
+        return hWindow;
     }
 
     public bool Close()
@@ -256,7 +311,7 @@ internal class NativeWindow : IWindow
         if (error.NativeErrorCode != 0)
         {
             //UIPIに引っかかると5が返ってくる
-            throw new WindowException("SendMessageW failed", error);
+            throw error;
         }
         return result;
     }
@@ -282,7 +337,7 @@ internal class NativeWindow : IWindow
         {
             if (error.NativeErrorCode != 0)
             {
-                throw new WindowException("PostMessageW failed", error);
+                throw error;
             }
         }
     }
@@ -305,7 +360,7 @@ internal class NativeWindow : IWindow
         return false;
     }
 
-    public bool Move(
+    public ValueTask<bool> MoveAsync(
         int x,
         int y,
         int width,
@@ -322,7 +377,7 @@ internal class NativeWindow : IWindow
                 height,
                 repaint
             );
-        }).Result;
+        });
     }
 
     private bool MoveImpl(
@@ -352,14 +407,14 @@ internal class NativeWindow : IWindow
         return result;
     }
 
-    public bool Show(
+    public ValueTask<bool> ShowAsync(
         int cmdShow
     )
     {
         return DispatchAsync((window) =>
         {
             return ((NativeWindow)window).ShowImpl(cmdShow);
-        }).Result;
+        });
     }
 
     private bool ShowImpl(
@@ -380,7 +435,7 @@ internal class NativeWindow : IWindow
 
         if (error.NativeErrorCode == 1400) // ERROR_INVALID_WINDOW_HANDLE
         {
-            throw new WindowException("ShowWindow failed", error);
+            throw error;
         }
 
         {
@@ -396,14 +451,14 @@ internal class NativeWindow : IWindow
         return result;
     }
 
-    public bool SetWindowStyle(
+    public ValueTask<bool> SetWindowStyleAsync(
         int style
     )
     {
         return DispatchAsync((window) =>
         {
             return ((NativeWindow)window).SetWindowStyleImpl(style);
-        }).Result;
+        });
     }
 
     private bool SetWindowStyleImpl(
@@ -500,6 +555,7 @@ internal class NativeWindow : IWindow
                 break;
         }
 
+        //TODO ここで同期コンテキスト？
         _onMessage?.Invoke(this, message);
     }
 }

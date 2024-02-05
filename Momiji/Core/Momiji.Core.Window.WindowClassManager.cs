@@ -22,6 +22,8 @@ internal class WindowClassManager : IDisposable
 
     internal WindowClass WindowClass => _windowClass;
 
+    private readonly WindowClassManagerSynchronizationContext _windowClassManagerSynchronizationContext;
+
     private readonly ConcurrentDictionary<User32.HWND, NativeWindow> _windowMap = new();
     private readonly Stack<NativeWindow> _windowStack = new();
 
@@ -30,7 +32,8 @@ internal class WindowClassManager : IDisposable
 
     internal WindowClassManager(
         IConfiguration configuration,
-        ILoggerFactory loggerFactory
+        ILoggerFactory loggerFactory,
+        DispatcherQueue dispatcherQueue
     )
     {
         ArgumentNullException.ThrowIfNull(configuration);
@@ -43,13 +46,15 @@ internal class WindowClassManager : IDisposable
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<WindowClassManager>();
 
-        _wndProc = new PinnedDelegate<User32.WNDPROC>(new(WndProc));
+        _wndProc = new(new(WndProc));
         _windowClass =
-            new WindowClass(
+            new(
                 _loggerFactory,
                 _wndProc,
-                param.CS
+                (uint)param.CS
             );
+
+        _windowClassManagerSynchronizationContext = new(_loggerFactory, dispatcherQueue);
     }
     ~WindowClassManager()
     {
@@ -90,16 +95,19 @@ internal class WindowClassManager : IDisposable
 
     internal void Push(NativeWindow window)
     {
+        //TODO 何かのコンテキストに移す
         _windowStack.Push(window);
     }
 
     internal NativeWindow Pop()
     {
+        //TODO 何かのコンテキストに移す
         return _windowStack.Pop();
     }
 
     internal void CloseAll()
     {
+        //TODO SendMessageに行くのでUIスレッドで呼び出す必要は無いが、統一すべき？
         foreach (var item in _windowMap)
         {
             if (!_windowMap.ContainsKey(item.Key))
@@ -122,6 +130,7 @@ internal class WindowClassManager : IDisposable
 
     internal void ForceClose()
     {
+        //TODO UIスレッドで呼び出す必要アリ
         _logger.LogWithLine(LogLevel.Warning, $"window left {_windowMap.Count}", Environment.CurrentManagedThreadId);
         foreach (var item in _windowMap)
         {
@@ -138,52 +147,9 @@ internal class WindowClassManager : IDisposable
         _windowMap.Clear();
     }
 
-    internal User32.HWND CreateWindow(
-        int dwExStyle,
-        nint lpszClassName,
-        nint lpszWindowName,
-        int style,
-        int x,
-        int y,
-        int width,
-        int height,
-        User32.HWND hwndParent,
-        nint hMenu,
-        nint hInst
-    )
-    {
-        _logger.LogWithLine(LogLevel.Trace, "CreateWindowEx", Environment.CurrentManagedThreadId);
-        var hWindow =
-            User32.CreateWindowExW(
-                dwExStyle,
-                lpszClassName,
-                lpszWindowName,
-                style,
-                x,
-                y,
-                width,
-                height,
-                hwndParent,
-                hMenu,
-                hInst,
-                nint.Zero
-            );
-        var error = new Win32Exception();
-        _logger.LogWithHWndAndError(LogLevel.Information, "CreateWindowEx result", hWindow, error.ToString(), Environment.CurrentManagedThreadId);
-        if (hWindow.Handle == User32.HWND.None.Handle)
-        {
-            ThrowIfOccurredInWndProc();
-            throw new WindowException("CreateWindowEx failed", error);
-        }
-
-        var behavior = User32.GetWindowDpiHostingBehavior(hWindow);
-        _logger.LogWithLine(LogLevel.Trace, $"GetWindowDpiHostingBehavior {behavior}", Environment.CurrentManagedThreadId);
-
-        return hWindow;
-    }
-
     internal void DispatchMessage()
     {
+        //TODO UIスレッドで呼び出す必要アリ
         var msg = new User32.MSG();
 
         while (true)
@@ -244,7 +210,7 @@ internal class WindowClassManager : IDisposable
         {
             _logger.LogWithMsg(LogLevel.Trace, "WndProc", hwnd, message.Msg, message.WParam, message.LParam, Environment.CurrentManagedThreadId);
 
-            WindowDebug.CheckDpiAwarenessContext(_loggerFactory, hwnd);
+            WindowDebug.CheckDpiAwarenessContext(_logger, hwnd);
 
             {
                 WndProcBefore(hwnd, message);
@@ -257,7 +223,17 @@ internal class WindowClassManager : IDisposable
             if (TryGetWindow(hwnd, out var window))
             {
                 //ウインドウに流す
-                window.WndProc(message);
+                var oldContext = SynchronizationContext.Current;
+                try
+                {
+                    SynchronizationContext.SetSynchronizationContext(_windowClassManagerSynchronizationContext);
+                    window.WndProc(message);
+                }
+                finally
+                {
+                    SynchronizationContext.SetSynchronizationContext(oldContext);
+                }
+
                 if (message.Handled)
                 {
                     _logger.LogWithHWnd(LogLevel.Trace, $"handled msg:[{msg:X}]", hwnd, Environment.CurrentManagedThreadId);
@@ -491,7 +467,7 @@ internal class WindowClassManager : IDisposable
         _logger.LogWithHWndAndError(LogLevel.Information, $"SetWindowLong result:[{result:X}]", childHWnd, error.ToString(), Environment.CurrentManagedThreadId);
         if (result == 0 && error.NativeErrorCode != 0)
         {
-            throw new WindowException("SetWindowLong failed", error);
+            throw error;
         }
 
         return result;
@@ -521,7 +497,7 @@ internal class WindowClassManager : IDisposable
         }
     }
 
-    internal class WndProcException(
+    private class WndProcException(
         string message,
         User32.HWND hwnd,
         uint msg,
@@ -540,6 +516,7 @@ internal class WindowClassManager : IDisposable
     {
         var result = nint.Zero;
 
+        //TODO 何かのコンテキストに移す
         _wndProcExceptionStack.Push(new WndProcException("error occurred in WndProc", hwnd, msg, wParam, lParam, exception));
 
         switch (msg)
@@ -560,14 +537,67 @@ internal class WindowClassManager : IDisposable
 
     internal void ThrowIfOccurredInWndProc()
     {
+        //TODO 何かのコンテキストに移す
         lock (_wndProcExceptionStack)
         {
-            if (_wndProcExceptionStack.Count > 0)
+            if (_wndProcExceptionStack.Count == 1)
+            {
+                throw _wndProcExceptionStack.Pop();
+            }
+            else if (_wndProcExceptionStack.Count > 1)
             {
                 var aggregateException = new AggregateException(_wndProcExceptionStack.AsEnumerable());
                 _wndProcExceptionStack.Clear();
                 throw aggregateException;
             }
+        }
+    }
+
+    //TODO 実験中
+    private class WindowClassManagerSynchronizationContext : SynchronizationContext
+    {
+        private readonly ILoggerFactory _loggerFactory;
+        private readonly ILogger _logger;
+
+        private readonly DispatcherQueue _dispatcherQueue;
+
+        internal WindowClassManagerSynchronizationContext(
+            ILoggerFactory loggerFactory,
+            DispatcherQueue dispatcherQueue
+        )
+        {
+            _loggerFactory = loggerFactory;
+            _logger = _loggerFactory.CreateLogger<WindowClassManagerSynchronizationContext>();
+            _dispatcherQueue = dispatcherQueue;
+        }
+
+        public override void Send(SendOrPostCallback d, object? state)
+        {
+            _logger.LogWithLine(LogLevel.Trace, "Send", Environment.CurrentManagedThreadId);
+
+            _dispatcherQueue.Dispatch(() => { d(state); });
+        }
+
+        public override void Post(SendOrPostCallback d, object? state)
+        {
+            _logger.LogWithLine(LogLevel.Trace, "Post", Environment.CurrentManagedThreadId);
+
+            _dispatcherQueue.Dispatch(() => { d(state); });
+        }
+
+        public override SynchronizationContext CreateCopy()
+        {
+            _logger.LogWithLine(LogLevel.Trace, "CreateCopy", Environment.CurrentManagedThreadId);
+            return this;
+        }
+        public override void OperationStarted()
+        {
+            _logger.LogWithLine(LogLevel.Trace, "OperationStarted", Environment.CurrentManagedThreadId);
+        }
+
+        public override void OperationCompleted()
+        {
+            _logger.LogWithLine(LogLevel.Trace, "OperationCompleted", Environment.CurrentManagedThreadId);
         }
     }
 }

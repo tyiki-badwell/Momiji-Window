@@ -351,12 +351,10 @@ public class WindowDebug
     }
 
     internal static void CheckDpiAwarenessContext(
-        ILoggerFactory loggerFactory,
+        ILogger logger,
         User32.HWND hwnd
     )
     {
-        var logger = loggerFactory.CreateLogger<WindowDebug>();
-
         {
             var context = User32.GetThreadDpiAwarenessContext();
             var awareness = User32.GetAwarenessFromDpiAwarenessContext(context);

@@ -15,6 +15,7 @@ public class WindowManager : IWindowManager
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
+    private readonly IConfiguration _configuration;
     private bool _disposed;
 
     private readonly object _sync = new();
@@ -22,9 +23,11 @@ public class WindowManager : IWindowManager
     private Task? _processTask;
     private int _uiThreadId;
 
+    //TODO UIスレッド内で作成する
     private readonly WindowClassManager _windowClassManager;
     internal WindowClassManager WindowClassManager => _windowClassManager;
 
+    //TODO RTWQにする（UIスレッド内で作成する）
     private readonly DispatcherQueue _dispatcherQueue;
 
     public WindowManager(
@@ -35,15 +38,13 @@ public class WindowManager : IWindowManager
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(loggerFactory);
 
-        //TODO windowとthreadが1:1のモード
-        var param = new IWindowManager.Param();
-        configuration.GetSection($"{typeof(WindowManager).FullName}").Bind(param);
-
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<WindowManager>();
 
-        _windowClassManager = new(configuration, loggerFactory);
-        _dispatcherQueue = new(loggerFactory);
+        _configuration = configuration;
+
+        _dispatcherQueue = new(_loggerFactory);
+        _windowClassManager = new(_configuration, _loggerFactory, _dispatcherQueue);
     }
 
     ~WindowManager()
@@ -179,7 +180,7 @@ public class WindowManager : IWindowManager
         }
     }
 
-    internal Task<T> DispatchAsync<T>(NativeWindow window, Func<IWindow, T> item)
+    internal async ValueTask<T> DispatchAsync<T>(Func<IWindow, T> item, NativeWindow window)
     {
         T func()
         {
@@ -203,15 +204,18 @@ public class WindowManager : IWindowManager
             }
         }
 
+        //TODO 即時実行か遅延実行かの判断はDispatcherQueueに移した方がよいか？
         if (_uiThreadId == Environment.CurrentManagedThreadId)
         {
             _logger.LogWithLine(LogLevel.Trace, "Dispatch called from same thread id then immidiate mode", Environment.CurrentManagedThreadId);
-            return Task.FromResult(func());
+            return func();
         }
 
         var tcs = new TaskCompletionSource<T>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+
         Dispatch(() =>
         {
+            _logger.LogWithLine(LogLevel.Trace, "Dispatch called from other thread id then async mode", Environment.CurrentManagedThreadId);
             try
             {
                 //TODO キャンセルできるようにする？
@@ -223,7 +227,7 @@ public class WindowManager : IWindowManager
             }
         });
 
-        return tcs.Task;
+        return await tcs.Task;
     }
 
     private void Dispatch(Action item)
@@ -249,7 +253,7 @@ public class WindowManager : IWindowManager
                 onMessage
             );
 
-        window.CreateWindow(_windowClassManager.WindowClass, windowTitle);
+        window.CreateWindow(windowTitle);
 
         return window;
     }
@@ -267,7 +271,7 @@ public class WindowManager : IWindowManager
                 onMessage
             );
 
-        window.CreateWindow(_windowClassManager.WindowClass, windowTitle, (parent as NativeWindow)!);
+        window.CreateWindow(windowTitle, (parent as NativeWindow)!);
 
         return window;
     }
@@ -300,11 +304,16 @@ public class WindowManager : IWindowManager
     {
         lock (_sync)
         {
+            if (_disposed)
+            {
+                throw new ObjectDisposedException("this");
+            }
+
             if (_processCancel != null)
             {
-                _logger.LogWithLine(LogLevel.Information, "already started.", Environment.CurrentManagedThreadId);
-                return;
+                throw new InvalidOperationException("already started.");
             }
+
             _processCancel = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         }
 
@@ -321,12 +330,18 @@ public class WindowManager : IWindowManager
 
         _logger.LogWithLine(LogLevel.Information, "process task end", Environment.CurrentManagedThreadId);
 
+        //TODO エラー時のみキャンセルすればよいハズ？
         await CancelAsync().ConfigureAwait(false);
         _logger.LogWithLine(LogLevel.Trace, "cancel end", Environment.CurrentManagedThreadId);
 
+        if (!_processCancel.IsCancellationRequested)
+        {
+            _logger.LogWithLine(LogLevel.Warning, "キャンセル済になってない", Environment.CurrentManagedThreadId);
+        }
+
         _processTask = default;
 
-        _processCancel?.Dispose();
+        _processCancel.Dispose();
         _processCancel = default;
 
         //TODO スレッドが終わったことの通知は要る？
@@ -407,7 +422,7 @@ public class WindowManager : IWindowManager
             if (!result)
             {
                 var error = new Win32Exception();
-                throw new WindowException("IsGUIThread failed", error);
+                throw error;
             }
         }
 
@@ -524,7 +539,7 @@ public class WindowManager : IWindowManager
                 {
                     //エラー
                     var error = new Win32Exception();
-                    throw new WindowException("MsgWaitForMultipleObjectsEx failed", error);
+                    throw error;
                 }
             }
         }

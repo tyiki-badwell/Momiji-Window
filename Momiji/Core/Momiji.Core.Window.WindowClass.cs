@@ -23,7 +23,7 @@ internal class WindowClass : IDisposable
     internal WindowClass(
         ILoggerFactory loggerFactory,
         PinnedDelegate<User32.WNDPROC> wndProc,
-        int cs
+        uint cs
     )
     {
         _loggerFactory = loggerFactory;
@@ -46,7 +46,7 @@ internal class WindowClass : IDisposable
         _logger.LogWithError(LogLevel.Information, $"RegisterClass [windowClass:{_windowClass}][className:{className}][atom:{atom}]", error.ToString(), Environment.CurrentManagedThreadId);
         if (atom == 0)
         {
-            throw new WindowException("RegisterClass failed", error);
+            throw error;
         }
     }
 

@@ -13,16 +13,81 @@ public class Program
         var a = Run(args);
         var b = Run(args);
 
+        var logger = (ILogger<Program>?)a.Item1.Services.GetService(typeof(ILogger<Program>));
+
         var set = new HashSet<Task>
         {
             a.Item2,
             b.Item2
         };
 
-        var windowA = a.Item3.CreateWindow("windowA");
+        var windowA = a.Item3.CreateWindow("windowA", async (sender, message) => {
+            //logger?.LogInformation($"   windowA:{message}");
+            switch (message.Msg)
+            {
+                case 0x0210: //WM_PARENTNOTIFY
+                    //message.WParam 子のウインドウメッセージ
+                    //message.LParam 下位ワード　X座標／上位ワード　Y座標
+                    break;
+
+                case 0x0111: //WM_COMMAND
+                    //message.WParam 上位ワード　0：メニュー／1：アクセラレータ／その他：ボタン識別子　下位ワード　識別子
+                    //message.LParam ウインドウハンドル
+
+                    logger?.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] delay start ===============================");
+                    await Task.Delay(1000);
+                    logger?.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] delay end ===============================");
+
+                    break;
+
+            }
+        });
         var windowB = b.Item3.CreateWindow("windowB");
 
-        var buttonA = a.Item3.CreateChildWindow(windowA, "BUTTON", "buttonA");
+        var buttonA = a.Item3.CreateChildWindow(windowA, "BUTTON", "buttonA", (sender, message) => {
+            //logger?.LogInformation($"       buttonA:{message}");
+            switch (message.Msg)
+            {
+                case 0x0084: //WM_NCHITTEST
+                    //message.LParam 下位ワード　X座標／上位ワード　Y座標
+                    break;
+                case 0x0020: //WM_SETCURSOR
+                    //message.WParam カーソルを含むウィンドウへのハンドル
+                    //message.LParam 下位ワード　WM_NCHITTESTの戻り値／上位ワード　マウスウインドウメッセージ
+                    break;
+                case 0x0200: //WM_MOUSEMOVE
+                    //message.WParam 仮想キー
+                    //message.LParam 下位ワード　X座標／上位ワード　Y座標
+                    break;
+                case 0x0021: //WM_MOUSEACTIVATE
+                    //message.WParam トップレベルウインドウハンドル
+                    //message.LParam 下位ワード　WM_NCHITTESTの戻り値／上位ワード　マウスウインドウメッセージ
+                    break;
+                case 0x0201: //WM_LBUTTONDOWN
+                    //message.WParam 仮想キー
+                    //message.LParam 下位ワード　X座標／上位ワード　Y座標
+                    break;
+                case 0x0281: //WM_IME_SETCONTEXT
+                    //message.WParam ウインドウがアクティブなら1
+                    //message.LParam 表示オプション
+                    break;
+                case 0x0007: //WM_SETFOCUS
+                    //message.WParam フォーカスが移る前にフォーカスを持っていたウインドウハンドル
+                    break;
+                case 0x00F3: //BM_SETSTATE
+                    //message.WParam ボタンを強調表示するならtrue
+                    break;
+                case 0x0202: //WM_LBUTTONUP
+                    //message.WParam 仮想キー
+                    //message.LParam 下位ワード　X座標／上位ワード　Y座標
+                    break;
+                case 0x0215: //WM_CAPTURECHANGED
+                    //message.LParam マウスキャプチャしているウインドウハンドル
+                    break;
+
+            }
+        
+        });
         var textA = a.Item3.CreateChildWindow(windowA, "EDIT", "textA");
 
         var buttonB = b.Item3.CreateChildWindow(windowB, "BUTTON", "buttonB");
@@ -35,13 +100,13 @@ public class Program
         //WPFコンテンツを挿入する
         //AウインドウのスレッドでAウインドウに追加
         await windowA.DispatchAsync((window) => {
-            var style = 0;
-            style = unchecked((int)0x10000000); //WS_VISIBLE
-            style |= unchecked((int)0x40000000); //WS_CHILD
+            var style = 0U;
+            style = 0x10000000U; //WS_VISIBLE
+            style |= 0x40000000U; //WS_CHILD
             var page = new TestPage();
             var param = new HwndSourceParameters("TestPage", 500, 500);
             param.SetPosition(200, 200);
-            param.WindowStyle = style;
+            param.WindowStyle = (int)style;
             param.ParentWindow = window.Handle;
 
             var hwndSource = new HwndSource(param)
@@ -52,17 +117,17 @@ public class Program
             return 0;
         });
 
-        buttonA.Move(10, 10, 200, 80, true);
-        textA.Move(10, 300, 200, 80, true);
+        await buttonA.MoveAsync(10, 10, 200, 80, true);
+        await textA.MoveAsync(10, 300, 200, 80, true);
 
         //TODO 失敗する
         //buttonC.Move(300, 100, 200, 80, true);
 
-        windowA.Show(1);
+        await windowA.ShowAsync(1);
 
-        buttonB.Move(10, 10, 200, 80, true);
-        textB.Move(10, 300, 200, 80, true);
-        windowB.Show(1);
+        await buttonB.MoveAsync(10, 10, 200, 80, true);
+        await textB.MoveAsync(10, 300, 200, 80, true);
+        await windowB.ShowAsync(1);
 
         while (set.Count > 0)
         {
