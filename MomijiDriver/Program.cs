@@ -10,18 +10,16 @@ public class Program
 {
     public static async Task Main(string[] args)
     {
-        var a = Run(args);
-        var b = Run(args);
+        var host = Worker.CreateHost(args);
+        var task = host.RunAsync();
 
-        var logger = (ILogger<Program>?)a.Item1.Services.GetService(typeof(ILogger<Program>));
+        var logger = (ILogger<Program>?)host.Services.GetService(typeof(ILogger<Program>));
+        var factory = (IWindowManagerFactory?)host.Services.GetService(typeof(IWindowManagerFactory));
 
-        var set = new HashSet<Task>
-        {
-            a.Item2,
-            b.Item2
-        };
+        await using var a = await factory!.StartAsync();
+        await using var b = await factory!.StartAsync();
 
-        var windowA = a.Item3.CreateWindow("windowA", async (sender, message) => {
+        var windowA = a.CreateWindow("windowA", async (sender, message) => {
             //logger?.LogInformation($"   windowA:{message}");
             switch (message.Msg)
             {
@@ -42,9 +40,9 @@ public class Program
 
             }
         });
-        var windowB = b.Item3.CreateWindow("windowB");
+        var windowB = b.CreateWindow("windowB");
 
-        var buttonA = a.Item3.CreateChildWindow(windowA, "BUTTON", "buttonA", (sender, message) => {
+        var buttonA = a.CreateChildWindow(windowA, "BUTTON", "buttonA", (sender, message) => {
             //logger?.LogInformation($"       buttonA:{message}");
             switch (message.Msg)
             {
@@ -88,14 +86,14 @@ public class Program
             }
         
         });
-        var textA = a.Item3.CreateChildWindow(windowA, "EDIT", "textA");
+        var textA = a.CreateChildWindow(windowA, "EDIT", "textA");
 
-        var buttonB = b.Item3.CreateChildWindow(windowB, "BUTTON", "buttonB");
-        var textB = b.Item3.CreateChildWindow(windowB, "EDIT", "textB");
+        var buttonB = b.CreateChildWindow(windowB, "BUTTON", "buttonB");
+        var textB = b.CreateChildWindow(windowB, "EDIT", "textB");
 
         //BスレッドからAにボタン追加
         //TODO handleを保存できてない
-        var buttonC = b.Item3.CreateChildWindow(windowA, "BUTTON", "buttonC");
+        var buttonC = b.CreateChildWindow(windowA, "BUTTON", "buttonC");
 
         //WPFコンテンツを挿入する
         //AウインドウのスレッドでAウインドウに追加
@@ -129,23 +127,7 @@ public class Program
         await textB.MoveAsync(10, 300, 200, 80, true);
         await windowB.ShowAsync(1);
 
-        while (set.Count > 0)
-        {
-            var task = await Task.WhenAny(set).ConfigureAwait(false);
-            set.Remove(task);
-        }
-    }
-
-    private static (IHost, Task, IWindowManager) Run(string[] args)
-    {
-        var host = Worker.CreateHost(args);
-
-        var task = host.RunAsync();
-
-        var manager = (IWindowManager?)host.Services.GetService(typeof(IWindowManager));
-        ArgumentNullException.ThrowIfNull(manager, nameof(manager));
-
-        return (host, task, manager);
+        await task;
     }
 }
 
@@ -160,7 +142,7 @@ public class Worker : BackgroundService
 
         builder.ConfigureServices((hostContext, services) =>
         {
-            services.AddSingleton<IWindowManager, WindowManager>();
+            services.AddSingleton<IWindowManagerFactory, WindowManagerFactory>();
             services.AddHostedService<Worker>();
         });
 
@@ -170,33 +152,40 @@ public class Worker : BackgroundService
     }
 
     private readonly ILogger _logger;
-    private readonly IWindowManager _windowManager;
 
     public Worker(
         ILogger<Worker> logger,
-        IWindowManager windowManager,
         IHostApplicationLifetime hostApplicationLifetime
     )
     {
         _logger = logger;
-        _windowManager = windowManager;
 
-        hostApplicationLifetime?.ApplicationStarted.Register(() =>
+        hostApplicationLifetime.ApplicationStarted.Register(() =>
         {
             _logger.LogInformation("ApplicationStarted");
         });
-        hostApplicationLifetime?.ApplicationStopping.Register(() =>
+        hostApplicationLifetime.ApplicationStopping.Register(() =>
         {
             _logger.LogInformation("ApplicationStopping");
         });
-        hostApplicationLifetime?.ApplicationStopped.Register(() =>
+        hostApplicationLifetime.ApplicationStopped.Register(() =>
         {
             _logger.LogInformation("ApplicationStopped");
         });
     }
 
-    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    protected async override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        return _windowManager.StartAsync(stoppingToken);
+        _logger.LogInformation("ExecuteAsync");
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+        }
+    }
+
+    public async override Task StopAsync(CancellationToken stoppingToken)
+    {
+        _logger.LogInformation("StopAsync");
+        await base.StopAsync(stoppingToken);
     }
 }

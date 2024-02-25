@@ -11,7 +11,7 @@ public class WindowException : Exception
     }
 }
 
-public interface IWindowManager : IDisposable, IAsyncDisposable
+public interface IWindowManagerFactory : IDisposable, IAsyncDisposable
 {
     public record class Param
     {
@@ -21,9 +21,11 @@ public interface IWindowManager : IDisposable, IAsyncDisposable
         }
     }
 
-    Task StartAsync(CancellationToken stoppingToken);
-    Task CancelAsync();
+    Task<IWindowManager> StartAsync();
+}
 
+public interface IWindowManager : IDisposable, IAsyncDisposable
+{
     public record class Message
     {
         public int Msg
@@ -38,8 +40,15 @@ public interface IWindowManager : IDisposable, IAsyncDisposable
         {
             get; init;
         }
+
+        public int UIThreadId
+        {
+            get; init;
+        }
+
         public nint Result
         {
+            //TODO インスタンスを作ったときのThreadIdと異なるスレッドからセットしようとしたらエラーにすべき？
             get; set;
         }
 
@@ -49,7 +58,7 @@ public interface IWindowManager : IDisposable, IAsyncDisposable
         }
         public override string ToString()
         {
-            return $"[Msg:{Msg:X}][WParam:{WParam:X}][LParam:{LParam:X}][Result:{Result:X}][Handled:{Handled}]";
+            return $"[Msg:{Msg:X}][WParam:{WParam:X}][LParam:{LParam:X}][UIThreadId:{UIThreadId:X}][Result:{Result:X}][Handled:{Handled}]";
         }
     }
 
@@ -72,8 +81,6 @@ public interface IWindowManager : IDisposable, IAsyncDisposable
         string windowTitle,
         OnMessage? onMessage = default
     );
-
-    void CloseAll();
 }
 
 public interface IWindow

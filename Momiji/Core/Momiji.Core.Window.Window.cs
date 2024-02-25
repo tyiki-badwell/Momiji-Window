@@ -169,7 +169,7 @@ internal class NativeWindow : IWindow
             using var lpszWindowName = new StringToHGlobalUni(windowTitle);
 
             //TODO WindowClassの取り出し方変える
-            var windowClass = _windowManager.WindowClassManager.WindowClass;
+            var windowClass = _windowManager.WindowClassManager!.WindowClass;
 
             return CreateWindowImpl(
                 exStyle,
@@ -186,7 +186,7 @@ internal class NativeWindow : IWindow
             );
         });
 
-        var handle = task.AsTask().Result;
+        var handle = task.AsTask().GetAwaiter().GetResult();
 
         _logger.LogWithHWnd(LogLevel.Information, $"CreateWindow end [{handle}]", _hWindow, Environment.CurrentManagedThreadId);
     }
@@ -229,7 +229,7 @@ internal class NativeWindow : IWindow
             );
         });
 
-        var handle = task.AsTask().Result;
+        var handle = task.AsTask().GetAwaiter().GetResult();
 
         _logger.LogWithHWnd(LogLevel.Information, $"CreateWindow end [{handle}]", _hWindow, Environment.CurrentManagedThreadId);
     }
@@ -268,7 +268,7 @@ internal class NativeWindow : IWindow
         _logger.LogWithHWndAndError(LogLevel.Information, "CreateWindowEx result", hWindow, error.ToString(), Environment.CurrentManagedThreadId);
         if (hWindow.Handle == User32.HWND.None.Handle)
         {
-            _windowManager.WindowClassManager.ThrowIfOccurredInWndProc();
+            _windowManager.WindowClassManager!.ThrowIfOccurredInWndProc();
             throw error;
         }
 

@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -40,7 +41,7 @@ internal class WindowClassManager : IDisposable
         ArgumentNullException.ThrowIfNull(loggerFactory);
 
         //TODO windowとthreadが1:1のモード
-        var param = new IWindowManager.Param();
+        var param = new IWindowManagerFactory.Param();
         configuration.GetSection($"{typeof(WindowManager).FullName}").Bind(param);
 
         _loggerFactory = loggerFactory;
@@ -77,6 +78,8 @@ internal class WindowClassManager : IDisposable
         if (disposing)
         {
             _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
+
+            ForceClose();
 
             //クローズしていないウインドウが残っていると失敗する
             _windowClass.Dispose();
@@ -128,19 +131,23 @@ internal class WindowClassManager : IDisposable
         }
     }
 
-    internal void ForceClose()
+    private void ForceClose()
     {
-        //TODO UIスレッドで呼び出す必要アリ
         _logger.LogWithLine(LogLevel.Warning, $"window left {_windowMap.Count}", Environment.CurrentManagedThreadId);
         foreach (var item in _windowMap)
         {
-            //TODO closeした通知を流す必要あり
             var hwnd = item.Key;
             _logger.LogWithHWnd(LogLevel.Warning, $"DestroyWindow", hwnd, Environment.CurrentManagedThreadId);
+
+            //TODO WM_NCDESTROYが発生してMapから削除されるので、foreachじゃダメかも？
             if (!User32.DestroyWindow(hwnd))
             {
                 var error = new Win32Exception();
                 _logger.LogWithHWndAndError(LogLevel.Error, "DestroyWindow failed", hwnd, error.ToString(), Environment.CurrentManagedThreadId);
+            }
+            else
+            {
+                _logger.LogWithHWnd(LogLevel.Trace, $"DestroyWindow OK", hwnd, Environment.CurrentManagedThreadId);
             }
         }
 
@@ -203,7 +210,8 @@ internal class WindowClassManager : IDisposable
         {
             Msg = (int)msg,
             WParam = wParam,
-            LParam = lParam
+            LParam = lParam,
+            UIThreadId = Environment.CurrentManagedThreadId
         };
 
         try
@@ -323,6 +331,22 @@ internal class WindowClassManager : IDisposable
     {
         switch (message.Msg)
         {
+            case 0x0001://WM_CREATE
+                _logger.LogWithHWnd(LogLevel.Trace, $"WM_CREATE {message.WParam:X} {message.LParam:X}", hwnd, Environment.CurrentManagedThreadId);
+                break;
+
+            case 0x0002://WM_DESTROY
+                _logger.LogWithHWnd(LogLevel.Trace, $"WM_DESTROY {message.WParam:X} {message.LParam:X}", hwnd, Environment.CurrentManagedThreadId);
+                break;
+
+            case 0x0006://WM_ACTIVATE
+                _logger.LogWithHWnd(LogLevel.Trace, $"WM_ACTIVATE {message.WParam:X} {message.LParam:X}", hwnd, Environment.CurrentManagedThreadId);
+                break;
+
+            case 0x0008://WM_KILLFOCUS
+                _logger.LogWithHWnd(LogLevel.Trace, $"WM_KILLFOCUS {message.WParam:X} {message.LParam:X}", hwnd, Environment.CurrentManagedThreadId);
+                break;
+
             case 0x0018://WM_SHOWWINDOW
                 _logger.LogWithHWnd(LogLevel.Trace, $"WM_SHOWWINDOW {message.WParam:X} {message.LParam:X}", hwnd, Environment.CurrentManagedThreadId);
                 break;
@@ -337,6 +361,10 @@ internal class WindowClassManager : IDisposable
 
             case 0x0046://WM_WINDOWPOSCHANGING
                 _logger.LogWithHWnd(LogLevel.Trace, "WM_WINDOWPOSCHANGING", hwnd, Environment.CurrentManagedThreadId);
+                break;
+
+            case 0x0047://WM_WINDOWPOSCHANGED
+                _logger.LogWithHWnd(LogLevel.Trace, "WM_WINDOWPOSCHANGED", hwnd, Environment.CurrentManagedThreadId);
                 break;
 
             case 0x0081://WM_NCCREATE
@@ -354,9 +382,21 @@ internal class WindowClassManager : IDisposable
                 _logger.LogWithHWnd(LogLevel.Trace, "WM_NCCALCSIZE", hwnd, Environment.CurrentManagedThreadId);
                 break;
 
+            case 0x0086://WM_NCACTIVATE
+                _logger.LogWithHWnd(LogLevel.Trace, "WM_NCACTIVATE", hwnd, Environment.CurrentManagedThreadId);
+                break;
+
             case 0x0210://WM_PARENTNOTIFY
                 _logger.LogWithHWnd(LogLevel.Trace, "WM_PARENTNOTIFY", hwnd, Environment.CurrentManagedThreadId);
                 OnWM_PARENTNOTIFY(hwnd, message.WParam, message.LParam);
+                break;
+
+            case 0x0281://WM_IME_SETCONTEXT
+                _logger.LogWithHWnd(LogLevel.Trace, "WM_IME_SETCONTEXT", hwnd, Environment.CurrentManagedThreadId);
+                break;
+
+            case 0x0282://WM_IME_NOTIFY
+                _logger.LogWithHWnd(LogLevel.Trace, "WM_IME_NOTIFY", hwnd, Environment.CurrentManagedThreadId);
                 break;
 
             case 0x02E0://WM_DPICHANGED
@@ -542,7 +582,7 @@ internal class WindowClassManager : IDisposable
         {
             if (_wndProcExceptionStack.Count == 1)
             {
-                throw _wndProcExceptionStack.Pop();
+                ExceptionDispatchInfo.Throw(_wndProcExceptionStack.Pop());
             }
             else if (_wndProcExceptionStack.Count > 1)
             {
@@ -575,14 +615,14 @@ internal class WindowClassManager : IDisposable
         {
             _logger.LogWithLine(LogLevel.Trace, "Send", Environment.CurrentManagedThreadId);
 
-            _dispatcherQueue.Dispatch(() => { d(state); });
+            _dispatcherQueue.Dispatch(d, state);
         }
 
         public override void Post(SendOrPostCallback d, object? state)
         {
             _logger.LogWithLine(LogLevel.Trace, "Post", Environment.CurrentManagedThreadId);
 
-            _dispatcherQueue.Dispatch(() => { d(state); });
+            _dispatcherQueue.Dispatch(d, state);
         }
 
         public override SynchronizationContext CreateCopy()

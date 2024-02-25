@@ -5,12 +5,14 @@ using Momiji.Internal.Log;
 
 namespace Momiji.Core.Window;
 
-internal class DispatcherQueue
+internal class DispatcherQueue : IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
+    private bool _disposed;
 
-    private readonly ConcurrentQueue<Action> _queue = new();
+    //TODO RTWQにする
+    private readonly ConcurrentQueue<object> _queue = new();
     private readonly ManualResetEventSlim _queueEvent = new();
 
     private readonly DispatcherQueueSynchronizationContext _dispatcherQueueSynchronizationContext;
@@ -26,19 +28,56 @@ internal class DispatcherQueue
         _dispatcherQueueSynchronizationContext = new(_loggerFactory, this);
     }
 
+    ~DispatcherQueue()
+    {
+        Dispose(false);
+    }
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (disposing)
+        {
+            _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
+        }
+
+        _disposed = true;
+    }
+
     internal void Dispatch(Action item)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         _queue.Enqueue(item);
+        _queueEvent.Set();
+    }
+
+    internal void Dispatch(SendOrPostCallback item, object? param)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        _queue.Enqueue((item, param));
         _queueEvent.Set();
     }
 
     internal void DispatchQueue()
     {
-        //TODO UIスレッドで呼び出す必要アリ
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         _logger.LogWithLine(LogLevel.Trace, $"Queue count [{_queue.Count}]", Environment.CurrentManagedThreadId);
         _queueEvent.Reset();
 
-        while (_queue.TryDequeue(out var result))
+        while (_queue.TryDequeue(out var item))
         {
             _logger.LogWithLine(LogLevel.Trace, "Invoke start", Environment.CurrentManagedThreadId);
 
@@ -48,7 +87,25 @@ internal class DispatcherQueue
             try
             {
                 SynchronizationContext.SetSynchronizationContext(_dispatcherQueueSynchronizationContext);
-                result.Invoke();
+
+                if (item is Action action)
+                {
+                    action();
+                }
+                else if (item is (SendOrPostCallback d, object state))
+                {
+                    d(state);
+                }
+                else
+                {
+                    throw new WindowException($"unknown queue item [{item}]");
+                }
+            }
+            catch (Exception e)
+            {
+                _logger.LogWithLine(LogLevel.Error, e, "Invoke error", Environment.CurrentManagedThreadId);
+                //ループを終了させる
+                throw;
             }
             finally
             {
@@ -80,14 +137,14 @@ internal class DispatcherQueue
         {
             _logger.LogWithLine(LogLevel.Trace, "Send", Environment.CurrentManagedThreadId);
 
-            _dispatcherQueue.Dispatch(() => { d(state); });
+            _dispatcherQueue.Dispatch(d, state);
         }
 
         public override void Post(SendOrPostCallback d, object? state)
         {
             _logger.LogWithLine(LogLevel.Trace, "Post", Environment.CurrentManagedThreadId);
 
-            _dispatcherQueue.Dispatch(() => { d(state); });
+            _dispatcherQueue.Dispatch(d, state);
         }
 
         public override SynchronizationContext CreateCopy()

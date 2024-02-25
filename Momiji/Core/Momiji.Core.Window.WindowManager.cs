@@ -11,24 +11,22 @@ using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
-public class WindowManager : IWindowManager
+internal class WindowManager : IWindowManager
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private readonly IConfiguration _configuration;
     private bool _disposed;
 
+    //TODO UIスレッドクラスに切り出す
     private readonly object _sync = new();
     private CancellationTokenSource? _processCancel;
     private Task? _processTask;
     private int _uiThreadId;
+    private DispatcherQueue? _dispatcherQueue;
+    private WindowClassManager? _windowClassManager;
 
-    //TODO UIスレッド内で作成する
-    private readonly WindowClassManager _windowClassManager;
-    internal WindowClassManager WindowClassManager => _windowClassManager;
-
-    //TODO RTWQにする（UIスレッド内で作成する）
-    private readonly DispatcherQueue _dispatcherQueue;
+    internal WindowClassManager? WindowClassManager => _windowClassManager;
 
     public WindowManager(
         IConfiguration configuration,
@@ -42,9 +40,6 @@ public class WindowManager : IWindowManager
         _logger = _loggerFactory.CreateLogger<WindowManager>();
 
         _configuration = configuration;
-
-        _dispatcherQueue = new(_loggerFactory);
-        _windowClassManager = new(_configuration, _loggerFactory, _dispatcherQueue);
     }
 
     ~WindowManager()
@@ -92,20 +87,24 @@ public class WindowManager : IWindowManager
         }
         finally
         {
-            _windowClassManager.Dispose();
-
             //_desktop?.Close();
             //_windowStation?.Close();
         }
         _logger.LogWithLine(LogLevel.Trace, "DisposeAsync end", Environment.CurrentManagedThreadId);
     }
 
-    public async Task CancelAsync()
+    private async Task CancelAsync()
     {
         var processCancel = _processCancel;
         if (processCancel == null)
         {
             _logger.LogWithLine(LogLevel.Information, "already stopped.", Environment.CurrentManagedThreadId);
+            return;
+        }
+
+        if (processCancel.IsCancellationRequested)
+        {
+            _logger.LogWithLine(LogLevel.Information, "already cancelled.", Environment.CurrentManagedThreadId);
             return;
         }
 
@@ -185,7 +184,7 @@ public class WindowManager : IWindowManager
         T func()
         {
             //TODO スレッドセーフになっているか要確認(再入しても問題ないなら気にしない)
-            _windowClassManager.Push(window);
+            _windowClassManager!.Push(window);
 
             try
             {
@@ -199,7 +198,7 @@ public class WindowManager : IWindowManager
             }
             finally
             {
-                var result = _windowClassManager.Pop();
+                var result = _windowClassManager!.Pop();
                 Debug.Assert(result == window);
             }
         }
@@ -238,7 +237,7 @@ public class WindowManager : IWindowManager
             throw new WindowException("message loop is not exists.");
         }
 
-        _dispatcherQueue.Dispatch(item);
+        _dispatcherQueue!.Dispatch(item);
     }
 
     public IWindow CreateWindow(
@@ -295,103 +294,72 @@ public class WindowManager : IWindowManager
         return window;
     }
 
-    public void CloseAll()
-    {
-        _windowClassManager.CloseAll();
-    }
-
-    public async Task StartAsync(CancellationToken stoppingToken)
+    public void Start(TaskCompletionSource<IWindowManager> startTcs)
     {
         lock (_sync)
         {
-            if (_disposed)
-            {
-                throw new ObjectDisposedException("this");
-            }
+            ObjectDisposedException.ThrowIf(_disposed, this);
 
             if (_processCancel != null)
             {
                 throw new InvalidOperationException("already started.");
             }
 
-            _processCancel = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            _processCancel = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken.None);
         }
 
-        _processTask = Run();
+        _processTask = Run(startTcs).ContinueWith((task) => {
+            _logger.LogWithLine(LogLevel.Information, "process task end", Environment.CurrentManagedThreadId);
 
-        try
-        {
-            await _processTask.ConfigureAwait(false);
-        }
-        catch (Exception e)
-        {
-            _logger.LogWithLine(LogLevel.Error, e, "process task failed.", Environment.CurrentManagedThreadId);
-        }
+            //TODO エラー時のみキャンセルすればよいハズ？
+            //await CancelAsync().ConfigureAwait(false);
+            //_logger.LogWithLine(LogLevel.Trace, "cancel end", Environment.CurrentManagedThreadId);
 
-        _logger.LogWithLine(LogLevel.Information, "process task end", Environment.CurrentManagedThreadId);
+            if (!_processCancel.IsCancellationRequested)
+            {
+                _logger.LogWithLine(LogLevel.Warning, "キャンセル済になってない", Environment.CurrentManagedThreadId);
+            }
 
-        //TODO エラー時のみキャンセルすればよいハズ？
-        await CancelAsync().ConfigureAwait(false);
-        _logger.LogWithLine(LogLevel.Trace, "cancel end", Environment.CurrentManagedThreadId);
+            _processTask = default;
 
-        if (!_processCancel.IsCancellationRequested)
-        {
-            _logger.LogWithLine(LogLevel.Warning, "キャンセル済になってない", Environment.CurrentManagedThreadId);
-        }
+            _processCancel.Dispose();
+            _processCancel = default;
 
-        _processTask = default;
+            //TODO スレッドが終わったことの通知は要る？
 
-        _processCancel.Dispose();
-        _processCancel = default;
-
-        //TODO スレッドが終わったことの通知は要る？
-
-        _logger.LogWithLine(LogLevel.Information, "stopped.", Environment.CurrentManagedThreadId);
+            _logger.LogWithLine(LogLevel.Information, "stopped.", Environment.CurrentManagedThreadId);
+        });
     }
 
-    private Task Run()
+    private Task Run(TaskCompletionSource<IWindowManager> startTcs)
     {
         var tcs = new TaskCompletionSource(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
         var thread = new Thread(() =>
         {
             _logger.LogWithLine(LogLevel.Information, "*** thread start ***", Environment.CurrentManagedThreadId);
-            Exception? exception = default;
+
             try
             {
+                using var dispatcherQueue = new DispatcherQueue(_loggerFactory);
+                _dispatcherQueue = dispatcherQueue;
+
+                using var windowClassManager = new WindowClassManager(_configuration, _loggerFactory, _dispatcherQueue);
+                _windowClassManager = windowClassManager;
+
                 SetupMessageLoopThread();
-                RunMessageLoop();
-                _logger.LogWithLine(LogLevel.Information, "message loop normal end", Environment.CurrentManagedThreadId);
+
+                startTcs.SetResult(this);
+
+                RunMessageLoop(_dispatcherQueue!, _windowClassManager!);
+                _logger.LogWithLine(LogLevel.Information, "message loop normal end.", Environment.CurrentManagedThreadId);
+                tcs.SetResult();
             }
             catch (Exception e)
             {
-                exception = e;
-                _logger.LogWithLine(LogLevel.Error, e, "message loop exception", Environment.CurrentManagedThreadId);
-                _processCancel?.Cancel();
-            }
+                _logger.LogWithLine(LogLevel.Error, e, "message loop abnormal end.", Environment.CurrentManagedThreadId);
 
-            //TODO ここでcloseのチェックをするのは妥当か？ processCancelした直後なのでwindowが残ってそう。
-            //但し、CreateWindowしたスレッドでないとDestroyWindowを呼べないので、この中で行うしかない？
-            if (!_windowClassManager.IsEmpty)
-            {
-                //クローズできていないwindowが残っているのは異常事態
-                try
-                {
-                    _windowClassManager.ForceClose();
-                }
-                catch (Exception e)
-                {
-                    exception = e;
-                    _logger.LogWithLine(LogLevel.Error, e, "window clean up exception", Environment.CurrentManagedThreadId);
-                }
-            }
-
-            if (exception != default)
-            {
-                tcs.SetException(new WindowException("message loop exception", exception));
-            }
-            else
-            {
-                tcs.SetResult();
+                startTcs.TrySetException(e);
+                tcs.SetException(e);
             }
 
             _uiThreadId = default;
@@ -446,7 +414,10 @@ public class WindowManager : IWindowManager
         }
     }
 
-    private void RunMessageLoop()
+    private void RunMessageLoop(
+        DispatcherQueue dispatcherQueue,
+        WindowClassManager windowClassManager
+    )
     {
         if (_processCancel == null)
         {
@@ -459,7 +430,7 @@ public class WindowManager : IWindowManager
         var ct = _processCancel.Token;
 
         using var waitHandlesPin = new PinnedBuffer<nint[]>([
-            _dispatcherQueue.SafeWaitHandle.DangerousGetHandle(),
+            dispatcherQueue.SafeWaitHandle.DangerousGetHandle(),
             ct.WaitHandle.SafeWaitHandle.DangerousGetHandle()
         ]);
         var handleCount = waitHandlesPin.Target.Length;
@@ -475,7 +446,7 @@ public class WindowManager : IWindowManager
 
             if (cancelled)
             {
-                if (_windowClassManager.IsEmpty)
+                if (windowClassManager.IsEmpty)
                 {
                     _logger.LogWithLine(LogLevel.Information, "all closed.", Environment.CurrentManagedThreadId);
                     break;
@@ -486,7 +457,7 @@ public class WindowManager : IWindowManager
                 cancelled = true;
 
                 _logger.LogWithLine(LogLevel.Information, "canceled.", Environment.CurrentManagedThreadId);
-                _windowClassManager.CloseAll();
+                windowClassManager.CloseAll();
 
                 // 10秒以内にクローズされなければ、ループを終わらせる
                 var _ =
@@ -516,7 +487,7 @@ public class WindowManager : IWindowManager
                 {
                     //ウインドウメッセージキューのディスパッチ
                     _logger.LogWithLine(LogLevel.Trace, "MsgWaitForMultipleObjectsEx comes window message.", Environment.CurrentManagedThreadId);
-                    _windowClassManager.DispatchMessage();
+                    windowClassManager.DispatchMessage();
                     continue;
                 }
                 else if (res == 0) // WAIT_OBJECT_0
@@ -524,7 +495,7 @@ public class WindowManager : IWindowManager
                     //タスクキューのディスパッチ
                     //TODO RTWQなどに置き換えできる？
                     _logger.LogWithLine(LogLevel.Trace, "MsgWaitForMultipleObjectsEx comes queue event.", Environment.CurrentManagedThreadId);
-                    _dispatcherQueue.DispatchQueue();
+                    dispatcherQueue.DispatchQueue();
                     continue;
                 }
                 else if (res == 1) // WAIT_OBJECT_0+1
