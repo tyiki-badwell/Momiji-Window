@@ -19,7 +19,7 @@ public class Program
         await using var a = await factory!.StartAsync();
         await using var b = await factory!.StartAsync();
 
-        var windowA = a.CreateWindow("windowA", async (sender, message) => {
+        var windowA = a.CreateWindow("windowA", onMessage:async (sender, message) => {
             //logger?.LogInformation($"   windowA:{message}");
             switch (message.Msg)
             {
@@ -42,7 +42,7 @@ public class Program
         });
         var windowB = b.CreateWindow("windowB");
 
-        var buttonA = a.CreateChildWindow(windowA, "BUTTON", "buttonA", (sender, message) => {
+        var buttonA = a.CreateWindow("buttonA", windowA, "BUTTON", (sender, message) => {
             //logger?.LogInformation($"       buttonA:{message}");
             switch (message.Msg)
             {
@@ -86,14 +86,14 @@ public class Program
             }
         
         });
-        var textA = a.CreateChildWindow(windowA, "EDIT", "textA");
+        var textA = a.CreateWindow("textA", windowA, "EDIT");
 
-        var buttonB = b.CreateChildWindow(windowB, "BUTTON", "buttonB");
-        var textB = b.CreateChildWindow(windowB, "EDIT", "textB");
+        var buttonB = b.CreateWindow("buttonB", windowB, "BUTTON");
+        var textB = b.CreateWindow("textB", windowB, "EDIT");
 
         //BスレッドからAにボタン追加
         //TODO handleを保存できてない
-        var buttonC = b.CreateChildWindow(windowA, "BUTTON", "buttonC");
+        var buttonC = b.CreateWindow("buttonC", windowA, "BUTTON");
 
         //WPFコンテンツを挿入する
         //AウインドウのスレッドでAウインドウに追加

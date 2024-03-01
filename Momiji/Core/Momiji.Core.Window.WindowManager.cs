@@ -1,5 +1,4 @@
 ﻿using System.ComponentModel;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -11,26 +10,26 @@ using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
-internal class WindowManager : IWindowManager
+public class WindowManager : IWindowManager
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private readonly IConfiguration _configuration;
     private bool _disposed;
 
-    //TODO UIスレッドクラスに切り出す
-    private readonly object _sync = new();
-    private CancellationTokenSource? _processCancel;
-    private Task? _processTask;
+    private readonly CancellationTokenSource _processCancel;
+    private readonly Task _processTask;
     private int _uiThreadId;
+
     private DispatcherQueue? _dispatcherQueue;
     private WindowClassManager? _windowClassManager;
 
-    internal WindowClassManager? WindowClassManager => _windowClassManager;
-
     public WindowManager(
         IConfiguration configuration,
-        ILoggerFactory loggerFactory
+        ILoggerFactory loggerFactory,
+        TaskCompletionSource startTcs,
+        IWindowManager.OnStop? onStop = default,
+        IWindowManager.OnUnhandledException? onUnhandledException = default
     )
     {
         ArgumentNullException.ThrowIfNull(configuration);
@@ -40,6 +39,14 @@ internal class WindowManager : IWindowManager
         _logger = _loggerFactory.CreateLogger<WindowManager>();
 
         _configuration = configuration;
+
+        _processCancel = new CancellationTokenSource();
+
+        _processTask = Start(
+            startTcs, 
+            onStop, 
+            onUnhandledException
+        );
     }
 
     ~WindowManager()
@@ -63,7 +70,7 @@ internal class WindowManager : IWindowManager
         if (disposing)
         {
             _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
-            DisposeAsyncCore().AsTask().Wait();
+            DisposeAsyncCore().AsTask().GetAwaiter().GetResult();
         }
 
         _disposed = true;
@@ -89,33 +96,27 @@ internal class WindowManager : IWindowManager
         {
             //_desktop?.Close();
             //_windowStation?.Close();
+
+            _processCancel.Dispose();
         }
         _logger.LogWithLine(LogLevel.Trace, "DisposeAsync end", Environment.CurrentManagedThreadId);
     }
 
     private async Task CancelAsync()
     {
-        var processCancel = _processCancel;
-        if (processCancel == null)
-        {
-            _logger.LogWithLine(LogLevel.Information, "already stopped.", Environment.CurrentManagedThreadId);
-            return;
-        }
-
-        if (processCancel.IsCancellationRequested)
+        if (_processCancel.IsCancellationRequested)
         {
             _logger.LogWithLine(LogLevel.Information, "already cancelled.", Environment.CurrentManagedThreadId);
-            return;
+        }
+        else
+        {
+            _logger.LogWithLine(LogLevel.Information, "cancel.", Environment.CurrentManagedThreadId);
+            _processCancel.Cancel();
         }
 
-        var task = _processTask;
         try
         {
-            processCancel.Cancel();
-            if (task != default)
-            {
-                await task;
-            }
+            await _processTask;
         }
         catch (Exception e)
         {
@@ -123,85 +124,9 @@ internal class WindowManager : IWindowManager
         }
     }
 
-    internal class PerMonitorAwareV2ThreadDpiAwarenessContextSetter : IDisposable
+    public async ValueTask<TResult> DispatchAsync<TResult>(Func<TResult> func)
     {
-        private readonly ILogger _logger;
-        private readonly NativeWindow _window;
-
-        private bool _disposed;
-        private readonly User32.DPI_AWARENESS_CONTEXT _oldContext;
-
-        public PerMonitorAwareV2ThreadDpiAwarenessContextSetter(
-            ILoggerFactory loggerFactory,
-            NativeWindow window
-        )
-        {
-            _logger = loggerFactory.CreateLogger<PerMonitorAwareV2ThreadDpiAwarenessContextSetter>();
-            _window = window;
-
-            _oldContext = User32.SetThreadDpiAwarenessContext(User32.DPI_AWARENESS_CONTEXT.PER_MONITOR_AWARE_V2);
-
-            var error = new Win32Exception();
-            _logger.LogWithHWndAndError(LogLevel.Trace, $"ON SetThreadDpiAwarenessContext [{_oldContext:X} -> PER_MONITOR_AWARE_V2]", _window._hWindow, error.ToString(), Environment.CurrentManagedThreadId);
-        }
-
-        ~PerMonitorAwareV2ThreadDpiAwarenessContextSetter()
-        {
-            Dispose(false);
-        }
-
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            if (disposing)
-            {
-            }
-
-            if (_oldContext.Handle != 0)
-            {
-                var oldContext = User32.SetThreadDpiAwarenessContext(_oldContext);
-
-                var error = new Win32Exception();
-                _logger.LogWithHWndAndError(LogLevel.Trace, $"OFF SetThreadDpiAwarenessContext [{oldContext} -> {_oldContext}]", _window._hWindow, error.ToString(), Environment.CurrentManagedThreadId);
-            }
-
-            _disposed = true;
-        }
-    }
-
-    internal async ValueTask<T> DispatchAsync<T>(Func<IWindow, T> item, NativeWindow window)
-    {
-        T func()
-        {
-            //TODO スレッドセーフになっているか要確認(再入しても問題ないなら気にしない)
-            _windowClassManager!.Push(window);
-
-            try
-            {
-                //TODO CreateWindowだけ囲えば良さそうだが、一旦全部囲ってしまう
-                using var context = new PerMonitorAwareV2ThreadDpiAwarenessContextSetter(_loggerFactory, window);
-
-                _logger.LogWithLine(LogLevel.Trace, "Invoke start", Environment.CurrentManagedThreadId);
-                var result = item.Invoke(window);
-                _logger.LogWithLine(LogLevel.Trace, "Invoke end", Environment.CurrentManagedThreadId);
-                return result;
-            }
-            finally
-            {
-                var result = _windowClassManager!.Pop();
-                Debug.Assert(result == window);
-            }
-        }
+        _logger.LogWithLine(LogLevel.Trace, "DispatchAsync", Environment.CurrentManagedThreadId);
 
         //TODO 即時実行か遅延実行かの判断はDispatcherQueueに移した方がよいか？
         if (_uiThreadId == Environment.CurrentManagedThreadId)
@@ -210,7 +135,7 @@ internal class WindowManager : IWindowManager
             return func();
         }
 
-        var tcs = new TaskCompletionSource<T>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+        var tcs = new TaskCompletionSource<TResult>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 
         Dispatch(() =>
         {
@@ -229,109 +154,95 @@ internal class WindowManager : IWindowManager
         return await tcs.Task;
     }
 
-    private void Dispatch(Action item)
+    private void Dispatch(Action action)
     {
-        _logger.LogWithLine(LogLevel.Information, "Dispatch", Environment.CurrentManagedThreadId);
-        if (_processCancel == default)
+        CheckRunning();
+        _dispatcherQueue!.Dispatch(action);
+    }
+
+    private void CheckRunning()
+    {
+        _logger.LogWithLine(LogLevel.Information, $"CheckRunning {_processTask.Status}", Environment.CurrentManagedThreadId);
+
+        if (!(_processTask.Status == TaskStatus.WaitingForActivation) || (_processTask.Status == TaskStatus.Running))
         {
-            throw new WindowException("message loop is not exists.");
+            throw new InvalidOperationException("message loop is not exists.");
         }
-
-        _dispatcherQueue!.Dispatch(item);
     }
 
     public IWindow CreateWindow(
         string windowTitle,
-        IWindowManager.OnMessage? onMessage = default
-    )
-    {
-        var window =
-            new NativeWindow(
-                _loggerFactory,
-                this,
-                onMessage
-            );
-
-        window.CreateWindow(windowTitle);
-
-        return window;
-    }
-
-    public IWindow CreateWindow(
-        IWindow parent,
-        string windowTitle,
-        IWindowManager.OnMessage? onMessage = default
-    )
-    {
-        var window =
-            new NativeWindow(
-                _loggerFactory,
-                this,
-                onMessage
-            );
-
-        window.CreateWindow(windowTitle, (parent as NativeWindow)!);
-
-        return window;
-    }
-
-    public IWindow CreateChildWindow(
-        IWindow parent,
+        IWindow? parent,
         string className,
-        string windowTitle,
-        IWindowManager.OnMessage? onMessage = default
+        IWindowManager.OnMessage? onMessage,
+        IWindowManager.OnMessage? onMessageAfter
     )
     {
+        CheckRunning();
+
+        var windowClassManager = _windowClassManager!;
+        var windowClass = windowClassManager.QueryWindowClass(className, 0);
+
         var window =
             new NativeWindow(
                 _loggerFactory,
                 this,
-                onMessage
+                windowClassManager,
+                windowClass,
+                onMessage,
+                onMessageAfter
             );
 
-        window.CreateWindow((parent as NativeWindow)!, className, windowTitle);
+        window.CreateWindow(
+            windowTitle, 
+            (parent as NativeWindow)
+        );
 
         return window;
     }
 
-    public void Start(TaskCompletionSource<IWindowManager> startTcs)
+    private Task<Task> Start(
+        TaskCompletionSource startTcs,
+        IWindowManager.OnStop? onStop = default,
+        IWindowManager.OnUnhandledException? onUnhandledException = default
+    )
     {
-        lock (_sync)
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-
-            if (_processCancel != null)
-            {
-                throw new InvalidOperationException("already started.");
-            }
-
-            _processCancel = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken.None);
-        }
-
-        _processTask = Run(startTcs).ContinueWith((task) => {
-            _logger.LogWithLine(LogLevel.Information, "process task end", Environment.CurrentManagedThreadId);
+        return Run(
+            startTcs,
+            onUnhandledException
+        ).ContinueWith(async (task) => {
+            _logger.LogWithLine(LogLevel.Information, $"process task end {task.Status} {_processTask?.Status}", Environment.CurrentManagedThreadId);
 
             //TODO エラー時のみキャンセルすればよいハズ？
-            //await CancelAsync().ConfigureAwait(false);
-            //_logger.LogWithLine(LogLevel.Trace, "cancel end", Environment.CurrentManagedThreadId);
+            await CancelAsync().ConfigureAwait(false);
+            _logger.LogWithLine(LogLevel.Trace, "cancel end", Environment.CurrentManagedThreadId);
 
             if (!_processCancel.IsCancellationRequested)
             {
                 _logger.LogWithLine(LogLevel.Warning, "キャンセル済になってない", Environment.CurrentManagedThreadId);
             }
 
-            _processTask = default;
-
-            _processCancel.Dispose();
-            _processCancel = default;
-
-            //TODO スレッドが終わったことの通知は要る？
-
-            _logger.LogWithLine(LogLevel.Information, "stopped.", Environment.CurrentManagedThreadId);
+            try
+            {
+                await task;
+                onStop?.Invoke(default);
+            }
+            catch (Exception e)
+            {
+                //_processTaskのエラー状態を伝播する
+                onStop?.Invoke(e);
+            }
+            finally
+            {
+                _logger.LogWithLine(LogLevel.Information, "stopped.", Environment.CurrentManagedThreadId);
+            }
         });
     }
 
-    private Task Run(TaskCompletionSource<IWindowManager> startTcs)
+    private Task Run(
+        TaskCompletionSource startTcs,
+        IWindowManager.OnUnhandledException? onUnhandledException = default
+    )
     {
         var tcs = new TaskCompletionSource(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
         var thread = new Thread(() =>
@@ -340,7 +251,7 @@ internal class WindowManager : IWindowManager
 
             try
             {
-                using var dispatcherQueue = new DispatcherQueue(_loggerFactory);
+                using var dispatcherQueue = new DispatcherQueue(_loggerFactory, onUnhandledException);
                 _dispatcherQueue = dispatcherQueue;
 
                 using var windowClassManager = new WindowClassManager(_configuration, _loggerFactory, _dispatcherQueue);
@@ -348,11 +259,13 @@ internal class WindowManager : IWindowManager
 
                 SetupMessageLoopThread();
 
-                startTcs.SetResult(this);
+                startTcs.SetResult();
 
-                RunMessageLoop(_dispatcherQueue!, _windowClassManager!);
+                RunMessageLoop(dispatcherQueue, windowClassManager);
                 _logger.LogWithLine(LogLevel.Information, "message loop normal end.", Environment.CurrentManagedThreadId);
                 tcs.SetResult();
+
+                //TODO DispatcherQueueをdisposeした後でSendOrPostCallbackが呼ばれる場合がある. 待つ方法？
             }
             catch (Exception e)
             {
@@ -361,7 +274,13 @@ internal class WindowManager : IWindowManager
                 startTcs.TrySetException(e);
                 tcs.SetException(e);
             }
+            finally
+            {
+                _dispatcherQueue = default;
+                _windowClassManager = default;
+            }
 
+            _logger.LogWithLine(LogLevel.Information, "*** thread end ***", Environment.CurrentManagedThreadId);
             _uiThreadId = default;
         })
         {
@@ -419,18 +338,13 @@ internal class WindowManager : IWindowManager
         WindowClassManager windowClassManager
     )
     {
-        if (_processCancel == null)
-        {
-            throw new InvalidOperationException($"{nameof(_processCancel)} is null.");
-        }
-
         var forceCancel = false;
         var cancelled = false;
 
         var ct = _processCancel.Token;
 
         using var waitHandlesPin = new PinnedBuffer<nint[]>([
-            dispatcherQueue.SafeWaitHandle.DangerousGetHandle(),
+            dispatcherQueue.WaitHandle.SafeWaitHandle.DangerousGetHandle(),
             ct.WaitHandle.SafeWaitHandle.DangerousGetHandle()
         ]);
         var handleCount = waitHandlesPin.Target.Length;

@@ -21,65 +21,37 @@ public interface IWindowManagerFactory : IDisposable, IAsyncDisposable
         }
     }
 
-    Task<IWindowManager> StartAsync();
+
+    Task<IWindowManager> StartAsync(
+        IWindowManager.OnStop? onStop = default,
+        IWindowManager.OnUnhandledException? onUnhandledException = default
+    );
 }
 
 public interface IWindowManager : IDisposable, IAsyncDisposable
 {
-    public record class Message
+    public interface IMessage
     {
-        public int Msg
-        {
-            get; init;
-        }
-        public nint WParam
-        {
-            get; init;
-        }
-        public nint LParam
-        {
-            get; init;
-        }
-
-        public int UIThreadId
-        {
-            get; init;
-        }
-
-        public nint Result
-        {
-            //TODO インスタンスを作ったときのThreadIdと異なるスレッドからセットしようとしたらエラーにすべき？
-            get; set;
-        }
-
-        public bool Handled
-        {
-            get; set;
-        }
-        public override string ToString()
-        {
-            return $"[Msg:{Msg:X}][WParam:{WParam:X}][LParam:{LParam:X}][UIThreadId:{UIThreadId:X}][Result:{Result:X}][Handled:{Handled}]";
-        }
+        int Msg { get; }
+        nint WParam { get; }
+        nint LParam { get; }
+        int OwnerThreadId { get; }
+        nint Result { get; set; }
+        bool Handled { get; set; }
     }
 
-    public delegate void OnMessage(IWindow sender, Message message);
+    delegate void OnStop(Exception? exception);
+    delegate void OnMessage(IWindow sender, IMessage message);
+    delegate bool OnUnhandledException(Exception exception);
 
-    public IWindow CreateWindow(
-        string windowTitle,
-        OnMessage? onMessage = default
-    );
+    ValueTask<TResult> DispatchAsync<TResult>(Func<TResult> func);
 
-    public IWindow CreateWindow(
-        IWindow parent,
+    IWindow CreateWindow(
         string windowTitle,
-        OnMessage? onMessage = default
-    );
-
-    public IWindow CreateChildWindow(
-        IWindow parent,
-        string className,
-        string windowTitle,
-        OnMessage? onMessage = default
+        IWindow? parent = default,
+        string className = "",
+        OnMessage? onMessage = default,
+        OnMessage? onMessageAfter = default
     );
 }
 

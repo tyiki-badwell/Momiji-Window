@@ -81,6 +81,28 @@ internal static partial class NativeMethods
     [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetClassInfoExW(
+        nint hInstance,
+        nint lpszClass,
+        ref WNDCLASSEX lpwcx
+    );
+}
+
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    internal static partial int GetWindowThreadProcessId(
+        HWND hWnd,
+        out int lpdwProcessId
+    );
+}
+
+internal static partial class NativeMethods
+{
+    [LibraryImport(Libraries.User32, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool IsGUIThread(
         [MarshalAs(UnmanagedType.Bool)] bool bConvert
     );

@@ -2,17 +2,22 @@
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using Momiji.Internal.Log;
+using Momiji.Internal.Util;
 using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
-internal class NativeWindow : IWindow
+public class NativeWindow : IWindow
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private readonly WindowManager _windowManager;
 
     private readonly IWindowManager.OnMessage? _onMessage;
+    private readonly IWindowManager.OnMessage? _onMessageAfter;
+
+    private readonly WindowClassManager _windowClassManager;
+    private readonly WindowClass _windowClass;
 
     internal User32.HWND _hWindow;
     public nint Handle => _hWindow.Handle;
@@ -20,7 +25,10 @@ internal class NativeWindow : IWindow
     internal NativeWindow(
         ILoggerFactory loggerFactory,
         WindowManager windowManager,
-        IWindowManager.OnMessage? onMessage = default
+        WindowClassManager windowClassManager,
+        WindowClass windowClass,
+        IWindowManager.OnMessage? onMessage,
+        IWindowManager.OnMessage? onMessageAfter
     )
     {
         //TODO UIAutomation
@@ -28,8 +36,11 @@ internal class NativeWindow : IWindow
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<NativeWindow>();
         _windowManager = windowManager;
+        _windowClassManager = windowClassManager;
+        _windowClass = windowClass;
 
         _onMessage = onMessage;
+        _onMessageAfter = onMessageAfter;
     }
 
     public override string ToString()
@@ -37,9 +48,16 @@ internal class NativeWindow : IWindow
         return $"NativeWindow[HWND:{_hWindow}]";
     }
 
-    public ValueTask<T> DispatchAsync<T>(Func<IWindow, T> item)
+    public async ValueTask<TResult> DispatchAsync<TResult>(Func<IWindow, TResult> item)
     {
-        return _windowManager.DispatchAsync(item, this);
+        _logger.LogWithLine(LogLevel.Trace, "DispatchAsync", Environment.CurrentManagedThreadId);
+
+        TResult func()
+        {
+            return _windowClassManager.InvokeWithContext(item, this);
+        }
+
+        return await _windowManager.DispatchAsync(func);
     }
 
     internal class MixedThreadDpiHostingBehaviorSetter : IDisposable
@@ -90,45 +108,6 @@ internal class NativeWindow : IWindow
         }
     }
 
-    internal class StringToHGlobalUni(
-        string text
-    ) : IDisposable
-    {
-        public readonly nint Handle = Marshal.StringToHGlobalUni(text);
-
-        private bool _disposed;
-
-        ~StringToHGlobalUni()
-        {
-            Dispose(false);
-        }
-
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            if (disposing)
-            {
-            }
-
-            if (Handle != nint.Zero)
-            {
-                Marshal.FreeHGlobal(Handle);
-            }
-
-            _disposed = true;
-        }
-    }
-
     internal void CreateWindow(
         string windowTitle,
         NativeWindow? parent = default
@@ -141,7 +120,9 @@ internal class NativeWindow : IWindow
             var exStyle = 0U;
             var style = 0U;
 
+            var hMenu = nint.Zero;
             var parentHWnd = User32.HWND.None;
+
             if (parent == null)
             {
                 style = 0x10000000U; //WS_VISIBLE
@@ -158,22 +139,21 @@ internal class NativeWindow : IWindow
 
                 style = 0x10000000U; //WS_VISIBLE
                 style |= 0x40000000U; //WS_CHILD
+
+                hMenu = _windowClassManager.GenerateChildId((NativeWindow)window); //子ウインドウ識別子
             }
 
             var CW_USEDEFAULT = unchecked((int)0x80000000);
 
-            //TODO DPI awareness 
+            //DPI awareness 
             using var behaviorSetter = new MixedThreadDpiHostingBehaviorSetter(_loggerFactory);
 
             //ウインドウタイトル
             using var lpszWindowName = new StringToHGlobalUni(windowTitle);
 
-            //TODO WindowClassの取り出し方変える
-            var windowClass = _windowManager.WindowClassManager!.WindowClass;
-
             return CreateWindowImpl(
                 exStyle,
-                windowClass.ClassName,
+                _windowClass.ClassName,
                 lpszWindowName.Handle, 
                 style,
                 CW_USEDEFAULT,
@@ -181,51 +161,8 @@ internal class NativeWindow : IWindow
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
                 parentHWnd,
-                nint.Zero, //TODO メニューハンドル
-                windowClass.HInstance
-            );
-        });
-
-        var handle = task.AsTask().GetAwaiter().GetResult();
-
-        _logger.LogWithHWnd(LogLevel.Information, $"CreateWindow end [{handle}]", _hWindow, Environment.CurrentManagedThreadId);
-    }
-
-    internal void CreateWindow(
-        NativeWindow parent,
-        string className,
-        string windowTitle
-    )
-    {
-        var parentHWnd = parent._hWindow;
-
-        // メッセージループに移行してからCreateWindowする
-        var task = DispatchAsync((window) =>
-        {
-            //TODO パラメーターにする
-            var exStyle = 0U;
-            var style = 0U;
-
-            style = 0x10000000U; //WS_VISIBLE
-            style |= 0x40000000U; //WS_CHILD
-
-            var CW_USEDEFAULT = unchecked((int)0x80000000);
-
-            using var lpszClassName = new StringToHGlobalUni(className);
-            using var lpszWindowName = new StringToHGlobalUni(windowTitle);
-
-            return CreateWindowImpl(
-                exStyle,
-                lpszClassName.Handle,
-                lpszWindowName.Handle,
-                style,
-                CW_USEDEFAULT,
-                CW_USEDEFAULT,
-                CW_USEDEFAULT,
-                CW_USEDEFAULT,
-                parentHWnd,
-                nint.Zero, //TODO 子ウインドウ識別子
-                nint.Zero
+                hMenu,
+                _windowClass.HInstance
             );
         });
 
@@ -268,7 +205,7 @@ internal class NativeWindow : IWindow
         _logger.LogWithHWndAndError(LogLevel.Information, "CreateWindowEx result", hWindow, error.ToString(), Environment.CurrentManagedThreadId);
         if (hWindow.Handle == User32.HWND.None.Handle)
         {
-            _windowManager.WindowClassManager!.ThrowIfOccurredInWndProc();
+            _windowClassManager.ThrowIfOccurredInWndProc();
             throw error;
         }
 
@@ -543,9 +480,9 @@ internal class NativeWindow : IWindow
         return (result, error);
     }
 
-    internal void WndProc(IWindowManager.Message message)
+    internal void WndProc(IWindowManager.IMessage message)
     {
-        _logger.LogWithMsg(LogLevel.Trace, "WndProc", _hWindow, message.Msg, message.WParam, message.LParam, Environment.CurrentManagedThreadId);
+        _logger.LogWithMsg(LogLevel.Trace, "WndProc", _hWindow, message, Environment.CurrentManagedThreadId);
 
         switch (message.Msg)
         {
@@ -556,55 +493,69 @@ internal class NativeWindow : IWindow
         }
 
         //TODO ここで同期コンテキスト？
+        //TODO エラーの伝播
+        _logger.LogWithMsg(LogLevel.Trace, "onMessage", _hWindow, message, Environment.CurrentManagedThreadId);
         _onMessage?.Invoke(this, message);
-    }
-}
-        /*
-        //表示していないとwinrt::hresult_invalid_argumentになる
-        var item = GraphicsCaptureItemInterop.CreateForWindow(hWindow);
-        item.Closed += (item, obj) => {
-            Logger.Log(LogLevel.Information, "[window] GraphicsCaptureItem closed");
-        };
 
-        unsafe
+        if (!message.Handled)
         {
+            _logger.LogWithMsg(LogLevel.Trace, "no handled message", _hWindow, message, Environment.CurrentManagedThreadId);
 
-            Windows.Win32.Graphics.Direct3D11.ID3D11Device* d;
-
-            Windows.Win32.PInvoke.D3D11CreateDevice(
-                null,
-                Windows.Win32.Graphics.Direct3D.D3D_DRIVER_TYPE.D3D_DRIVER_TYPE_HARDWARE,
-                null,
-                Windows.Win32.Graphics.Direct3D11.D3D11_CREATE_DEVICE_FLAG.D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                null,
-                11,
-                &d,
-                null,
-                null
-                );
-            Windows.Win32.PInvoke.CreateDirect3D11DeviceFromDXGIDevice(null, a.ObjRef);
+            //スーパークラス化している場合は、オリジナルのプロシージャを実行する
+            _windowClass.CallOriginalWindowProc(_hWindow, message);
         }
 
-        IInspectable a;
+        _logger.LogWithMsg(LogLevel.Trace, "onMessageAfter", _hWindow, message, Environment.CurrentManagedThreadId);
+        _onMessageAfter?.Invoke(this, message);
+    }
 
-        IDirect3DDevice canvas;
+}
+/*
+//表示していないとwinrt::hresult_invalid_argumentになる
+var item = GraphicsCaptureItemInterop.CreateForWindow(hWindow);
+item.Closed += (item, obj) => {
+    Logger.Log(LogLevel.Information, "[window] GraphicsCaptureItem closed");
+};
 
-        using var pool =
-            Direct3D11CaptureFramePool.Create(
-                canvas,
-                Windows.Graphics.DirectX.DirectXPixelFormat.R8G8B8A8UIntNormalized,
-                2,
-                item.Size
-            );
+unsafe
+{
 
-        pool.FrameArrived += (pool, obj) => {
-            using var frame = pool.TryGetNextFrame();
-            //frame.Surface;
-            Logger.Log(LogLevel.Information, "[window] FrameArrived");
+    Windows.Win32.Graphics.Direct3D11.ID3D11Device* d;
 
-        };
+    Windows.Win32.PInvoke.D3D11CreateDevice(
+        null,
+        Windows.Win32.Graphics.Direct3D.D3D_DRIVER_TYPE.D3D_DRIVER_TYPE_HARDWARE,
+        null,
+        Windows.Win32.Graphics.Direct3D11.D3D11_CREATE_DEVICE_FLAG.D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+        null,
+        11,
+        &d,
+        null,
+        null
+        );
+    Windows.Win32.PInvoke.CreateDirect3D11DeviceFromDXGIDevice(null, a.ObjRef);
+}
 
-        using var session = pool.CreateCaptureSession(item);
-        session.StartCapture();
-        Logger.Log(LogLevel.Information, "[window] StartCapture");
-        */
+IInspectable a;
+
+IDirect3DDevice canvas;
+
+using var pool =
+    Direct3D11CaptureFramePool.Create(
+        canvas,
+        Windows.Graphics.DirectX.DirectXPixelFormat.R8G8B8A8UIntNormalized,
+        2,
+        item.Size
+    );
+
+pool.FrameArrived += (pool, obj) => {
+    using var frame = pool.TryGetNextFrame();
+    //frame.Surface;
+    Logger.Log(LogLevel.Information, "[window] FrameArrived");
+
+};
+
+using var session = pool.CreateCaptureSession(item);
+session.StartCapture();
+Logger.Log(LogLevel.Information, "[window] StartCapture");
+*/

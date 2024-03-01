@@ -1,15 +1,16 @@
 ﻿using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
-using Microsoft.Win32.SafeHandles;
 using Momiji.Internal.Log;
 
 namespace Momiji.Core.Window;
 
-internal class DispatcherQueue : IDisposable
+public class DispatcherQueue : IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private bool _disposed;
+
+    private readonly int _uiThreadId;
 
     //TODO RTWQにする
     private readonly ConcurrentQueue<object> _queue = new();
@@ -17,15 +18,22 @@ internal class DispatcherQueue : IDisposable
 
     private readonly DispatcherQueueSynchronizationContext _dispatcherQueueSynchronizationContext;
 
-    public SafeWaitHandle SafeWaitHandle => _queueEvent.WaitHandle.SafeWaitHandle;
+    public WaitHandle WaitHandle => _queueEvent.WaitHandle;
 
-    internal DispatcherQueue(
-        ILoggerFactory loggerFactory
+    private readonly IWindowManager.OnUnhandledException? _onUnhandledException;
+
+    public DispatcherQueue(
+        ILoggerFactory loggerFactory,
+        IWindowManager.OnUnhandledException? onUnhandledException = default
     )
     {
+        _uiThreadId = Environment.CurrentManagedThreadId;
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<DispatcherQueue>();
         _dispatcherQueueSynchronizationContext = new(_loggerFactory, this);
+        _onUnhandledException = onUnhandledException;
+
+        _logger.LogWithLine(LogLevel.Trace, $"DispatcherQueue [uiThreadId:{_uiThreadId}]", Environment.CurrentManagedThreadId);
     }
 
     ~DispatcherQueue()
@@ -49,30 +57,44 @@ internal class DispatcherQueue : IDisposable
         if (disposing)
         {
             _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
+            _queueEvent.Dispose();
         }
 
         _disposed = true;
     }
 
-    internal void Dispatch(Action item)
+    public void Dispatch(Action action)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        _queue.Enqueue(item);
+        _logger.LogWithLine(LogLevel.Trace, "Dispatch Action", Environment.CurrentManagedThreadId);
+        _queue.Enqueue(action);
         _queueEvent.Set();
     }
 
-    internal void Dispatch(SendOrPostCallback item, object? param)
+    public void Dispatch(SendOrPostCallback callback, object? param)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        _queue.Enqueue((item, param));
+        _logger.LogWithLine(LogLevel.Trace, "Dispatch SendOrPostCallback", Environment.CurrentManagedThreadId);
+        _queue.Enqueue((callback, param));
         _queueEvent.Set();
     }
 
-    internal void DispatchQueue()
+    private void ThrowIfCalledFromOtherThread()
+    {
+        if (_uiThreadId != Environment.CurrentManagedThreadId)
+        {
+            throw new InvalidOperationException($"called from invalid thread id [construct:{_uiThreadId:X}] [current:{Environment.CurrentManagedThreadId:X}]");
+        }
+    }
+
+    public void DispatchQueue()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+
+        //UIスレッドで呼び出す必要アリ
+        ThrowIfCalledFromOtherThread();
 
         _logger.LogWithLine(LogLevel.Trace, $"Queue count [{_queue.Count}]", Environment.CurrentManagedThreadId);
         _queueEvent.Reset();
@@ -98,14 +120,21 @@ internal class DispatcherQueue : IDisposable
                 }
                 else
                 {
-                    throw new WindowException($"unknown queue item [{item}]");
+                    throw new ArgumentException($"unknown queue item type [{item.GetType()}]");
                 }
             }
             catch (Exception e)
             {
                 _logger.LogWithLine(LogLevel.Error, e, "Invoke error", Environment.CurrentManagedThreadId);
-                //ループを終了させる
-                throw;
+
+                var handled = _onUnhandledException?.Invoke(e);
+
+                if (!(handled.HasValue && handled.Value))
+                {
+                    //ループを終了させる
+                    _logger.LogWithLine(LogLevel.Trace, "loop end", Environment.CurrentManagedThreadId);
+                    throw;
+                }
             }
             finally
             {
@@ -136,14 +165,12 @@ internal class DispatcherQueue : IDisposable
         public override void Send(SendOrPostCallback d, object? state)
         {
             _logger.LogWithLine(LogLevel.Trace, "Send", Environment.CurrentManagedThreadId);
-
-            _dispatcherQueue.Dispatch(d, state);
+            throw new NotSupportedException("Send");
         }
 
         public override void Post(SendOrPostCallback d, object? state)
         {
             _logger.LogWithLine(LogLevel.Trace, "Post", Environment.CurrentManagedThreadId);
-
             _dispatcherQueue.Dispatch(d, state);
         }
 
@@ -152,6 +179,7 @@ internal class DispatcherQueue : IDisposable
             _logger.LogWithLine(LogLevel.Trace, "CreateCopy", Environment.CurrentManagedThreadId);
             return this;
         }
+
         public override void OperationStarted()
         {
             _logger.LogWithLine(LogLevel.Trace, "OperationStarted", Environment.CurrentManagedThreadId);

@@ -1,5 +1,6 @@
 ﻿using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
+using Momiji.Core.Window;
 using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Internal.Log;
@@ -28,6 +29,24 @@ internal static partial class LogDefine
         Message = "thread:[{threadId:X}] {message} error:[{error}] ({file}:{line} {member})"
     )]
     internal static partial void LogWithError(this ILogger logger, LogLevel logLevel, string message, string error, int threadId,
+        [CallerFilePath] string file = "",
+        [CallerLineNumber] int line = 0,
+        [CallerMemberName] string member = ""
+        );
+
+    [LoggerMessage(
+        Message = "thread:[{threadId:X}] hwnd:[{hwnd}] {message} msg:[{msg}] ({file}:{line} {member})"
+    )]
+    internal static partial void LogWithMsg(this ILogger logger, LogLevel logLevel, string message, User32.HWND hwnd, IWindowManager.IMessage msg, int threadId,
+        [CallerFilePath] string file = "",
+        [CallerLineNumber] int line = 0,
+        [CallerMemberName] string member = ""
+        );
+
+    [LoggerMessage(
+        Message = "thread:[{threadId:X}] hwnd:[{hwnd}] {message} msg:[{msg}] error:[{error}] ({file}:{line} {member})"
+    )]
+    internal static partial void LogWithMsgAndError(this ILogger logger, LogLevel logLevel, string message, User32.HWND hwnd, IWindowManager.IMessage msg, string error, int threadId,
         [CallerFilePath] string file = "",
         [CallerLineNumber] int line = 0,
         [CallerMemberName] string member = ""

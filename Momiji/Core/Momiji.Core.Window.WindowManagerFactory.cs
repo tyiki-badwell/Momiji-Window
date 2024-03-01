@@ -12,7 +12,7 @@ public class WindowManagerFactory : IWindowManagerFactory
     private readonly IConfiguration _configuration;
     private bool _disposed;
 
-    private readonly ConcurrentBag<WindowManager> _windowManagerBag = new();
+    private readonly ConcurrentBag<WindowManager> _windowManagerBag = [];
 
     public WindowManagerFactory(
         IConfiguration configuration,
@@ -49,7 +49,7 @@ public class WindowManagerFactory : IWindowManagerFactory
         if (disposing)
         {
             _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
-            DisposeAsyncCore().AsTask().Wait();
+            DisposeAsyncCore().AsTask().GetAwaiter().GetResult();
         }
 
         _disposed = true;
@@ -74,46 +74,37 @@ public class WindowManagerFactory : IWindowManagerFactory
             taskList.Add(windowManager.DisposeAsync().AsTask());
         }
 
-        foreach (var task in taskList)
+        try
         {
-            try
-            {
-                await task;
-            }
-            catch (Exception e)
-            {
-                _logger.LogWithLine(LogLevel.Error, e, "error", Environment.CurrentManagedThreadId);
-            }
+            await Task.WhenAll(taskList);
+        }
+        catch (Exception e)
+        {
+            _logger.LogWithLine(LogLevel.Error, e, "error", Environment.CurrentManagedThreadId);
         }
 
         _logger.LogWithLine(LogLevel.Trace, "DisposeAsync end", Environment.CurrentManagedThreadId);
     }
 
-    public async Task<IWindowManager> StartAsync()
+    public async Task<IWindowManager> StartAsync(
+        IWindowManager.OnStop? onStop = default,
+        IWindowManager.OnUnhandledException? onUnhandledException = default
+    )
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         _logger.LogWithLine(LogLevel.Information, "StartAsync", Environment.CurrentManagedThreadId);
-        var tcs = new TaskCompletionSource<IWindowManager>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
-        var windowManager = new WindowManager(_configuration, _loggerFactory);
+        var tcs = new TaskCompletionSource(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 
-        windowManager.Start(tcs);
-        try
-        {
-            return await tcs.Task;
-        }
-        catch
-        {
-            windowManager.Dispose();
-            windowManager = default;
-            throw;
-        }
-        finally
-        {
-            if (windowManager != null)
-            {
-                _windowManagerBag.Add(windowManager);
-            }
-        }
+        var windowManager = new WindowManager(
+            _configuration, 
+            _loggerFactory, 
+            tcs, 
+            onStop, 
+            onUnhandledException
+        );
+        await tcs.Task;
+        _windowManagerBag.Add(windowManager);
+        return windowManager;
     }
 }
