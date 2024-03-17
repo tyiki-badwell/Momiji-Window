@@ -14,7 +14,7 @@ public class Program
         var task = host.RunAsync();
 
         var logger = (ILogger<Program>?)host.Services.GetService(typeof(ILogger<Program>));
-        var factory = (IWindowManagerFactory?)host.Services.GetService(typeof(IWindowManagerFactory));
+        var factory = (IUIThreadFactory?)host.Services.GetService(typeof(IUIThreadFactory));
 
         await using var a = await factory!.StartAsync();
         await using var b = await factory!.StartAsync();
@@ -142,7 +142,7 @@ public class Worker : BackgroundService
 
         builder.ConfigureServices((hostContext, services) =>
         {
-            services.AddSingleton<IWindowManagerFactory, WindowManagerFactory>();
+            services.AddSingleton<IUIThreadFactory, UIThreadFactory>();
             services.AddHostedService<Worker>();
         });
 

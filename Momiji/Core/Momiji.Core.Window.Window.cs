@@ -7,16 +7,15 @@ using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
-public class NativeWindow : IWindow
+internal sealed class NativeWindow : IWindow
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
-    private readonly WindowManager _windowManager;
 
-    private readonly IWindowManager.OnMessage? _onMessage;
-    private readonly IWindowManager.OnMessage? _onMessageAfter;
+    private readonly IUIThread.OnMessage? _onMessage;
+    private readonly IUIThread.OnMessage? _onMessageAfter;
 
-    private readonly WindowClassManager _windowClassManager;
+    private readonly WindowContext _windowContext;
     private readonly WindowClass _windowClass;
 
     internal User32.HWND _hWindow;
@@ -24,20 +23,19 @@ public class NativeWindow : IWindow
 
     internal NativeWindow(
         ILoggerFactory loggerFactory,
-        WindowManager windowManager,
-        WindowClassManager windowClassManager,
-        WindowClass windowClass,
-        IWindowManager.OnMessage? onMessage,
-        IWindowManager.OnMessage? onMessageAfter
+        WindowContext windowContext,
+        string className,
+        User32.WNDCLASSEX.CS classStyle,
+        IUIThread.OnMessage? onMessage,
+        IUIThread.OnMessage? onMessageAfter
     )
     {
         //TODO UIAutomation
 
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<NativeWindow>();
-        _windowManager = windowManager;
-        _windowClassManager = windowClassManager;
-        _windowClass = windowClass;
+        _windowContext = windowContext;
+        _windowClass = _windowContext.WindowClassManager.QueryWindowClass(className, classStyle);
 
         _onMessage = onMessage;
         _onMessageAfter = onMessageAfter;
@@ -54,57 +52,33 @@ public class NativeWindow : IWindow
 
         TResult func()
         {
-            return _windowClassManager.InvokeWithContext(item, this);
+            return _windowContext.WindowManager.InvokeWithContext(item, this);
         }
 
-        return await _windowManager.DispatchAsync(func);
+        return await _windowContext.DispatchAsync(func);
     }
 
-    internal class MixedThreadDpiHostingBehaviorSetter : IDisposable
+    internal readonly ref struct SwitchThreadDpiHostingBehaviorMixedRAII
     {
         private readonly ILogger _logger;
+        private readonly User32.DPI_HOSTING_BEHAVIOR _oldBehavior; 
 
-        private bool _disposed;
-        private readonly User32.DPI_HOSTING_BEHAVIOR _oldBehavior;
-
-        public MixedThreadDpiHostingBehaviorSetter(
-            ILoggerFactory loggerFactory
+        public SwitchThreadDpiHostingBehaviorMixedRAII(
+            ILogger logger
         )
         {
-            _logger = loggerFactory.CreateLogger<MixedThreadDpiHostingBehaviorSetter>();
+            _logger = logger;
             _oldBehavior = User32.SetThreadDpiHostingBehavior(User32.DPI_HOSTING_BEHAVIOR.MIXED);
             _logger.LogWithLine(LogLevel.Trace, $"ON SetThreadDpiHostingBehavior [{_oldBehavior} -> MIXED]", Environment.CurrentManagedThreadId);
         }
 
-        ~MixedThreadDpiHostingBehaviorSetter()
-        {
-            Dispose(false);
-        }
-
         public void Dispose()
         {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            if (disposing)
-            {
-            }
-
             if (_oldBehavior != User32.DPI_HOSTING_BEHAVIOR.INVALID)
             {
                 var oldBehavior = User32.SetThreadDpiHostingBehavior(_oldBehavior);
                 _logger.LogWithLine(LogLevel.Trace, $"OFF SetThreadDpiHostingBehavior [{oldBehavior} -> {_oldBehavior}]", Environment.CurrentManagedThreadId);
             }
-
-            _disposed = true;
         }
     }
 
@@ -140,16 +114,16 @@ public class NativeWindow : IWindow
                 style = 0x10000000U; //WS_VISIBLE
                 style |= 0x40000000U; //WS_CHILD
 
-                hMenu = _windowClassManager.GenerateChildId((NativeWindow)window); //子ウインドウ識別子
+                hMenu = _windowContext.WindowManager.GenerateChildId((NativeWindow)window); //子ウインドウ識別子
             }
 
             var CW_USEDEFAULT = unchecked((int)0x80000000);
 
             //DPI awareness 
-            using var behaviorSetter = new MixedThreadDpiHostingBehaviorSetter(_loggerFactory);
+            using var switchBehavior = new SwitchThreadDpiHostingBehaviorMixedRAII(_logger);
 
             //ウインドウタイトル
-            using var lpszWindowName = new StringToHGlobalUni(windowTitle);
+            using var lpszWindowName = new StringToHGlobalUniRAII(windowTitle, _logger);
 
             return CreateWindowImpl(
                 exStyle,
@@ -205,7 +179,7 @@ public class NativeWindow : IWindow
         _logger.LogWithHWndAndError(LogLevel.Information, "CreateWindowEx result", hWindow, error.ToString(), Environment.CurrentManagedThreadId);
         if (hWindow.Handle == User32.HWND.None.Handle)
         {
-            _windowClassManager.ThrowIfOccurredInWndProc();
+            _windowContext.WindowProcedure.ThrowIfOccurredInWndProc();
             throw error;
         }
 
@@ -233,24 +207,7 @@ public class NativeWindow : IWindow
         nint lParam
     )
     {
-        //TODO SendMessage/SendNotifyMessage/SendMessageCallback/SendMessageTimeout の使い分け？
-        _logger.LogWithMsg(LogLevel.Trace, "SendMessageW", _hWindow, nMsg, wParam, lParam, Environment.CurrentManagedThreadId);
-        var result =
-            User32.SendMessageW(
-                _hWindow,
-                (uint)nMsg,
-                wParam,
-                lParam
-            );
-        var error = new Win32Exception();
-        _logger.LogWithHWndAndError(LogLevel.Trace, $"SendMessageW result:[{result}]", _hWindow, error.ToString(), Environment.CurrentManagedThreadId);
-
-        if (error.NativeErrorCode != 0)
-        {
-            //UIPIに引っかかると5が返ってくる
-            throw error;
-        }
-        return result;
+        return _windowContext.WindowProcedure.SendMessage(_hWindow, (uint)nMsg, wParam, lParam);
     }
 
     public void PostMessage(
@@ -259,24 +216,7 @@ public class NativeWindow : IWindow
         nint lParam
     )
     {
-        _logger.LogWithMsg(LogLevel.Trace, "PostMessageW", _hWindow, nMsg, wParam, lParam, Environment.CurrentManagedThreadId);
-        var result =
-            User32.PostMessageW(
-                _hWindow,
-                (uint)nMsg,
-                wParam,
-                lParam
-            );
-        var error = new Win32Exception();
-        _logger.LogWithHWndAndError(LogLevel.Trace, $"PostMessageW result:[{result}]", _hWindow, error.ToString(), Environment.CurrentManagedThreadId);
-
-        if (!result)
-        {
-            if (error.NativeErrorCode != 0)
-            {
-                throw error;
-            }
-        }
+        _windowContext.WindowProcedure.PostMessage(_hWindow, (uint)nMsg, wParam, lParam);
     }
 
     public bool ReplyMessage(
@@ -480,7 +420,7 @@ public class NativeWindow : IWindow
         return (result, error);
     }
 
-    internal void WndProc(IWindowManager.IMessage message)
+    internal void WndProc(IUIThread.IMessage message)
     {
         _logger.LogWithMsg(LogLevel.Trace, "WndProc", _hWindow, message, Environment.CurrentManagedThreadId);
 

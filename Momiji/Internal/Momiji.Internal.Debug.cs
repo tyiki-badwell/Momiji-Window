@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Momiji.Core.Buffer;
 using Momiji.Core.Window;
 using Momiji.Internal.Log;
+using Momiji.Internal.Util;
 using Momiji.Interop.User32;
 using Advapi32 = Momiji.Interop.Advapi32.NativeMethods;
 using Kernel32 = Momiji.Interop.Kernel32.NativeMethods;
@@ -16,6 +17,7 @@ namespace Momiji.Internal.Debug;
 
 public class WindowDebug
 {
+    [Conditional("DEBUG")]
     public static void CheckIntegrityLevel(
         ILoggerFactory loggerFactory
     )
@@ -149,6 +151,7 @@ public class WindowDebug
         logger.Log(LogLevel.Information, $"account [{Marshal.PtrToStringUni(name)}] [{Marshal.PtrToStringUni(domainName)}] {use}");
     }
 
+    [Conditional("DEBUG")]
     public static void CheckDesktop(
         ILoggerFactory loggerFactory
     )
@@ -312,6 +315,7 @@ public class WindowDebug
             */
     }
 
+    [Conditional("DEBUG")]
     public static void CheckGetProcessInformation(
         ILoggerFactory loggerFactory
     )
@@ -350,6 +354,7 @@ public class WindowDebug
         }
     }
 
+    [Conditional("DEBUG")]
     internal static void CheckDpiAwarenessContext(
         ILogger logger,
         User32.HWND hwnd
@@ -371,5 +376,52 @@ public class WindowDebug
 
             logger.LogWithHWnd(LogLevel.Trace, $"GetWindowDpiAwarenessContext [context:{context}][awareness:{awareness}][dpi:{dpi}][dpiForWindow:{dpiForWindow}]", hwnd, Environment.CurrentManagedThreadId);
         }
+    }
+
+    [Conditional("DEBUG")]
+    internal static void PrintAtomNames(
+        ILogger logger
+    )
+    {
+        logger.LogTrace("================================= PrintAtomNames start");
+
+        var length = 1024;
+        Span<char> text = stackalloc char[length];
+        for (var idx = 0xC000u; idx <= 0xFFFFu; idx++)
+        {
+            var len = User32.GetClipboardFormatNameW(idx, text, length);
+            text[len] = '\0';
+            var text_ = new string(text.TrimEnd('\0'));
+
+            if (string.IsNullOrEmpty(text_))
+            {
+                continue;
+            }
+
+            {
+                var windowClass = new User32.WNDCLASSEX
+                {
+                    cbSize = Marshal.SizeOf<User32.WNDCLASSEX>()
+                };
+
+                using var lpszClassName = new StringToHGlobalUniRAII(text_, logger);
+
+                {
+                    var result = User32.GetClassInfoExW(
+                        nint.Zero,
+                        lpszClassName.Handle,
+                        ref windowClass
+                    );
+
+                    if (result)
+                    {
+                        logger.LogWithLine(LogLevel.Information, $"[{idx:X}][className:{text_}][windowClass:{windowClass}]", Environment.CurrentManagedThreadId);
+                    }
+                }
+            }
+
+            text.Clear();
+        }
+        logger.LogTrace("================================= PrintAtomNames end");
     }
 }

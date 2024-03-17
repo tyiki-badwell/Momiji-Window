@@ -65,7 +65,7 @@ public class WindowUnitTest : IDisposable
             .AddJsonFile("appsettings.json")
             .Build();
 
-        var section = configuration.GetSection("Momiji.Core.Window.WindowManager");
+        var section = configuration.GetSection("Momiji.Core.Window.UIThread");
 
         if (cs != 0)
         {
@@ -80,8 +80,11 @@ public class WindowUnitTest : IDisposable
     {
         try
         {
-            await using var factory = new WindowManagerFactory(CreateConfiguration(0x9999), _loggerFactory);
-            await using var manager = await factory.StartAsync();
+            await using var factory = new UIThreadFactory(CreateConfiguration(0x9999), _loggerFactory);
+            await using var thread = await factory.StartAsync();
+
+            var window = thread.CreateWindow("window");
+
             Assert.Fail("エラーが発生しなかった");
         }
         catch (Win32Exception e)
@@ -94,27 +97,27 @@ public class WindowUnitTest : IDisposable
     [TestMethod]
     public async Task TestStartAsync()
     {
-        await using var factory = new WindowManagerFactory(CreateConfiguration(), _loggerFactory);
+        await using var factory = new UIThreadFactory(CreateConfiguration(), _loggerFactory);
 
         {//１回目起動
             _logger.LogInformation("======================= 1st start");
-            await using var manager = await factory.StartAsync();
+            await using var thread = await factory.StartAsync();
             _logger.LogInformation("======================= 1st end");
         }
 
         {//２回目起動
             _logger.LogInformation("======================= 2nd start");
-            await using var manager = await factory.StartAsync();
+            await using var thread = await factory.StartAsync();
             _logger.LogInformation("======================= 2nd end");
         }
 
         {//二重起動
             _logger.LogInformation("======================= 3rd start");
-            await using var manager1 = await factory.StartAsync();
+            await using var thread1 = await factory.StartAsync();
             _logger.LogInformation("======================= 3rd status");
 
             _logger.LogInformation("======================= 4th start");
-            await using var manager2 = await factory.StartAsync();
+            await using var thread2 = await factory.StartAsync();
             _logger.LogInformation($"======================= 4th status");
         }
     }
@@ -122,7 +125,7 @@ public class WindowUnitTest : IDisposable
     [TestMethod]
     public async Task TestDispose()
     {
-        var factory = new WindowManagerFactory(CreateConfiguration(), _loggerFactory);
+        var factory = new UIThreadFactory(CreateConfiguration(), _loggerFactory);
 
         {//起動したままdispose
             _logger.LogInformation("======================= start");
@@ -134,7 +137,7 @@ public class WindowUnitTest : IDisposable
 
         try
         {//dispose後のstartはNG
-            var manager = await factory.StartAsync();
+            var thread = await factory.StartAsync();
             Assert.Fail("エラーが発生しなかった");
         }
         catch (ObjectDisposedException e)
@@ -146,7 +149,7 @@ public class WindowUnitTest : IDisposable
     [TestMethod]
     public async Task TestDisposeAync()
     {
-        var factory = new WindowManagerFactory(CreateConfiguration(), _loggerFactory);
+        var factory = new UIThreadFactory(CreateConfiguration(), _loggerFactory);
 
         {//起動したままdispose async
             _logger.LogInformation("======================= start");
@@ -170,10 +173,10 @@ public class WindowUnitTest : IDisposable
     [TestMethod]
     public async Task TestCreateWindow()
     {
-        await using var factory = new WindowManagerFactory(CreateConfiguration(), _loggerFactory);
-        await using var manager = await factory.StartAsync();
+        await using var factory = new UIThreadFactory(CreateConfiguration(), _loggerFactory);
+        await using var thread = await factory.StartAsync();
 
-        var window = manager.CreateWindow("window");
+        var window = thread.CreateWindow("window");
         await window.MoveAsync(0, 0, 100, 100, true);
         await window.ShowAsync(1);
         await window.MoveAsync(100, 100, 100, 100, true);
@@ -198,12 +201,12 @@ public class WindowUnitTest : IDisposable
     [DataRow(false)]
     public async Task TestOnMassage(bool close)
     {
-        await using var factory = new WindowManagerFactory(CreateConfiguration(), _loggerFactory);
-        await using var manager = await factory.StartAsync();
+        await using var factory = new UIThreadFactory(CreateConfiguration(), _loggerFactory);
+        await using var thread = await factory.StartAsync();
 
         var canClose = false;
 
-        var window = manager.CreateWindow("window", onMessage:(sender, message) => {
+        var window = thread.CreateWindow("window", onMessage:(sender, message) => {
             switch (message.Msg)
             {
                 case 0x0010://WM_CLOSE
@@ -231,15 +234,15 @@ public class WindowUnitTest : IDisposable
     [TestMethod]
     public async Task TestCreateChildWindow()
     {
-        await using var factory = new WindowManagerFactory(CreateConfiguration(), _loggerFactory);
-        await using var manager = await factory.StartAsync();
+        await using var factory = new UIThreadFactory(CreateConfiguration(), _loggerFactory);
+        await using var thread = await factory.StartAsync();
 
-        var window = manager.CreateWindow("window", onMessage:(sender, message) => {
+        var window = thread.CreateWindow("window", onMessage:(sender, message) => {
             _logger.LogInformation($"on message {message}");
 
             if (message.Msg == 0x0001) //WM_CREATE
             {
-                var child = manager.CreateWindow("child", sender, "EDIT", (sender, message) => {
+                var child = thread.CreateWindow("child", sender, "EDIT", (sender, message) => {
                     _logger.LogInformation($"child on message {message}");
                 });
             }
@@ -249,12 +252,12 @@ public class WindowUnitTest : IDisposable
     [TestMethod]
     public async Task TestCreateChildWindowFail()
     {
-        await using var factory = new WindowManagerFactory(CreateConfiguration(), _loggerFactory);
-        await using var manager = await factory.StartAsync();
+        await using var factory = new UIThreadFactory(CreateConfiguration(), _loggerFactory);
+        await using var thread = await factory.StartAsync();
 
         try
         {
-            var window = manager.CreateWindow("window", onMessage:(sender, message) =>
+            var window = thread.CreateWindow("window", onMessage:(sender, message) =>
             {
                 _logger.LogInformation($"on message {message}");
 
@@ -263,7 +266,7 @@ public class WindowUnitTest : IDisposable
                     try
                     {
                         //*** async でイベントを作っているとWM_CREATEでエラーにできない
-                        var child = manager.CreateWindow("child", sender, "EDITXXX", (sender, message) =>
+                        var child = thread.CreateWindow("child", sender, "EDITXXX", (sender, message) =>
                         {
                             _logger.LogInformation($"child on message {message}");
                         });
@@ -345,8 +348,8 @@ public class WindowUnitTest : IDisposable
         Exception? errorStop = default;
         using var cde = new CountdownEvent(3);
         {
-            await using var factory = new WindowManagerFactory(CreateConfiguration(), _loggerFactory);
-            var manager = await factory.StartAsync(
+            await using var factory = new UIThreadFactory(CreateConfiguration(), _loggerFactory);
+            var thread = await factory.StartAsync(
                 (exception) => {
                     _logger.LogInformation(exception, $"★thread:[{Environment.CurrentManagedThreadId:X}] on stop  [cde:{cde.CurrentCount}]===============================[{SynchronizationContext.Current}]");
 
@@ -425,7 +428,7 @@ public class WindowUnitTest : IDisposable
                 return result;
             };
 
-            var window = manager.CreateWindow("window", onMessage:async (sender, message) => {
+            var window = thread.CreateWindow("window", onMessage:async (sender, message) => {
                 if (message.Msg == 0)
                 {
                     if (message.LParam == 999)
@@ -462,9 +465,9 @@ public class WindowUnitTest : IDisposable
             cde.Wait();
             _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] cde wait end [cde:{cde.CurrentCount}] ===============================");
 
-            _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] cde wait manager DisposeAsync start ===============================");
-            await manager.DisposeAsync();
-            _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] cde wait manager DisposeAsync end ===============================");
+            _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] cde wait thread DisposeAsync start ===============================");
+            await thread.DisposeAsync();
+            _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] cde wait thread DisposeAsync end ===============================");
         }
 
         if (error)
@@ -505,8 +508,8 @@ public class WindowUnitTest : IDisposable
         Exception? errorStop = default;
         using var cde = new CountdownEvent(1);
         {
-            await using var factory = new WindowManagerFactory(CreateConfiguration(), _loggerFactory);
-            var manager = await factory.StartAsync((exception) => {
+            await using var factory = new UIThreadFactory(CreateConfiguration(), _loggerFactory);
+            var thread = await factory.StartAsync((exception) => {
                 _logger.LogInformation(exception, $"★thread:[{Environment.CurrentManagedThreadId:X}] on stop  [cde:{cde.CurrentCount}]===============================[{SynchronizationContext.Current}]");
 
                 if (!cde.IsSet)
@@ -551,7 +554,7 @@ public class WindowUnitTest : IDisposable
 
                     case CallType.InDispatch:
                         _logger.LogInformation($"▼thread:[{Environment.CurrentManagedThreadId:X}] InDispatch start ===============================");
-                        result = await await manager.DispatchAsync(() => method(param));
+                        result = await await thread.DispatchAsync(() => method(param));
                         _logger.LogInformation($"▼thread:[{Environment.CurrentManagedThreadId:X}] InDispatch end ===============================");
                         break;
 
@@ -593,9 +596,9 @@ public class WindowUnitTest : IDisposable
             cde.Wait();
             _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] cde wait end [cde:{cde.CurrentCount}] ===============================");
 
-            _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] cde wait manager DisposeAsync start ===============================");
-            await manager.DisposeAsync();
-            _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] cde wait manager DisposeAsync end ===============================");
+            _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] cde wait thread DisposeAsync start ===============================");
+            await thread.DisposeAsync();
+            _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] cde wait thread DisposeAsync end ===============================");
         }
 
         if (error)
@@ -611,10 +614,10 @@ public class WindowUnitTest : IDisposable
     [TestMethod]
     public async Task TestSetWindowStyle()
     {
-        await using var factory = new WindowManagerFactory(CreateConfiguration(), _loggerFactory);
-        await using var manager = await factory.StartAsync();
+        await using var factory = new UIThreadFactory(CreateConfiguration(), _loggerFactory);
+        await using var thread = await factory.StartAsync();
 
-        var window = manager.CreateWindow("window");
+        var window = thread.CreateWindow("window");
 
         await window.SetWindowStyleAsync(0);
 
@@ -630,10 +633,10 @@ public class WindowUnitTest : IDisposable
     [TestMethod]
     public async Task TestDispatch1()
     {
-        await using var factory = new WindowManagerFactory(CreateConfiguration(), _loggerFactory);
-        await using var manager = await factory.StartAsync();
+        await using var factory = new UIThreadFactory(CreateConfiguration(), _loggerFactory);
+        await using var thread = await factory.StartAsync();
 
-        var window = manager.CreateWindow("window");
+        var window = thread.CreateWindow("window");
 
         {
             _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] Dispatch 1 put ===============================");
@@ -649,10 +652,10 @@ public class WindowUnitTest : IDisposable
     [TestMethod]
     public async Task TestDispatch2()
     {
-        await using var factory = new WindowManagerFactory(CreateConfiguration(), _loggerFactory);
-        await using var manager = await factory.StartAsync();
+        await using var factory = new UIThreadFactory(CreateConfiguration(), _loggerFactory);
+        await using var thread = await factory.StartAsync();
 
-        var window = manager.CreateWindow("window");
+        var window = thread.CreateWindow("window");
 
         {
             _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] Dispatch 2 put ===============================");
@@ -686,10 +689,10 @@ public class WindowUnitTest : IDisposable
     [TestMethod]
     public async Task TestDispatch3()
     {
-        await using var factory = new WindowManagerFactory(CreateConfiguration(), _loggerFactory);
-        await using var manager = await factory.StartAsync();
+        await using var factory = new UIThreadFactory(CreateConfiguration(), _loggerFactory);
+        await using var thread = await factory.StartAsync();
 
-        var window = manager.CreateWindow("window");
+        var window = thread.CreateWindow("window");
 
         {
             _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] Dispatch 4 put ===============================");
@@ -712,12 +715,12 @@ public class WindowUnitTest : IDisposable
     [TestMethod]
     public async Task TestDispatch4()
     {
-        await using var factory = new WindowManagerFactory(CreateConfiguration(), _loggerFactory);
-        await using var manager = await factory.StartAsync();
+        await using var factory = new UIThreadFactory(CreateConfiguration(), _loggerFactory);
+        await using var thread = await factory.StartAsync();
 
         using var cde = new CountdownEvent(1);
 
-        var window = manager.CreateWindow("window", onMessage:async (sender, message) => {
+        var window = thread.CreateWindow("window", onMessage:async (sender, message) => {
             if (message.Msg == 0)
             {
                 _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] message [{message}] ===============================");
@@ -773,10 +776,10 @@ public class WindowUnitTest : IDisposable
     {
         var errorMessage = $"ERROR{Guid.NewGuid()}";
 
-        await using var factory = new WindowManagerFactory(CreateConfiguration(), _loggerFactory);
-        await using var manager = await factory.StartAsync();
+        await using var factory = new UIThreadFactory(CreateConfiguration(), _loggerFactory);
+        await using var thread = await factory.StartAsync();
 
-        var window = manager.CreateWindow("window", onMessage:async (sender, message) => {
+        var window = thread.CreateWindow("window", onMessage:async (sender, message) => {
             if (message.Msg == 0)
             {
                 _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] message [{message}] ===============================[{SynchronizationContext.Current}]");
@@ -824,23 +827,23 @@ public class WindowUnitTest : IDisposable
     [TestMethod]
     public async Task TestCreateWindowFromOtherThread()
     {
-        await using var factory = new WindowManagerFactory(CreateConfiguration(), _loggerFactory);
-        await using var managerA = await factory.StartAsync();
-        await using var managerB = await factory.StartAsync();
+        await using var factory = new UIThreadFactory(CreateConfiguration(), _loggerFactory);
+        await using var threadA = await factory.StartAsync();
+        await using var threadB = await factory.StartAsync();
 
-        var windowA = managerA.CreateWindow("windowA", onMessage:(sender, message) => {
+        var windowA = threadA.CreateWindow("windowA", onMessage:(sender, message) => {
             _logger.LogInformation($"PARENT on message {message}");
         });
 
-        var buttonA = managerA.CreateWindow("buttonA", windowA, "BUTTON", (sender, message) => {
+        var buttonA = threadA.CreateWindow("buttonA", windowA, "BUTTON", (sender, message) => {
             _logger.LogInformation($"CHILD A on message {message}");
         });
 
-        var windowAA = managerA.CreateWindow("windowAA", windowA, onMessage:(sender, message) => {
+        var windowAA = threadA.CreateWindow("windowAA", windowA, onMessage:(sender, message) => {
             _logger.LogInformation($"CHILD W on message {message}");
         });
 
-        var buttonB = managerB.CreateWindow("buttonB", windowA, "BUTTON", (sender, message) => {
+        var buttonB = threadB.CreateWindow("buttonB", windowA, "BUTTON", (sender, message) => {
             _logger.LogInformation($"CHILD B on message {message}");
         });
 

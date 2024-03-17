@@ -217,6 +217,6 @@ internal static partial class NativeMethods
     [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     internal static partial HDesktop GetThreadDesktop(
-        int dwThreadId
+        uint dwThreadId
     );
 }

@@ -1,10 +1,11 @@
 ﻿using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Momiji.Internal.Log;
+using Momiji.Internal.Util;
 
 namespace Momiji.Core.Window;
 
-public class DispatcherQueue : IDisposable
+internal sealed class DispatcherQueue : IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -20,11 +21,11 @@ public class DispatcherQueue : IDisposable
 
     public WaitHandle WaitHandle => _queueEvent.WaitHandle;
 
-    private readonly IWindowManager.OnUnhandledException? _onUnhandledException;
+    private readonly IUIThread.OnUnhandledException? _onUnhandledException;
 
     public DispatcherQueue(
         ILoggerFactory loggerFactory,
-        IWindowManager.OnUnhandledException? onUnhandledException = default
+        IUIThread.OnUnhandledException? onUnhandledException = default
     )
     {
         _uiThreadId = Environment.CurrentManagedThreadId;
@@ -47,7 +48,7 @@ public class DispatcherQueue : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    protected virtual void Dispose(bool disposing)
+    private void Dispose(bool disposing)
     {
         if (_disposed)
         {
@@ -105,11 +106,9 @@ public class DispatcherQueue : IDisposable
 
             //TODO ここで実行コンテキスト？
 
-            var oldContext = SynchronizationContext.Current;
+            using var switchContext = new SwitchSynchronizationContextRAII(_dispatcherQueueSynchronizationContext, _logger);
             try
             {
-                SynchronizationContext.SetSynchronizationContext(_dispatcherQueueSynchronizationContext);
-
                 if (item is Action action)
                 {
                     action();
@@ -136,16 +135,12 @@ public class DispatcherQueue : IDisposable
                     throw;
                 }
             }
-            finally
-            {
-                SynchronizationContext.SetSynchronizationContext(oldContext);
-            }
             _logger.LogWithLine(LogLevel.Trace, "Invoke end", Environment.CurrentManagedThreadId);
         }
     }
 
     //TODO 実験中
-    private class DispatcherQueueSynchronizationContext : SynchronizationContext
+    private sealed class DispatcherQueueSynchronizationContext : SynchronizationContext
     {
         private readonly ILoggerFactory _loggerFactory;
         private readonly ILogger _logger;

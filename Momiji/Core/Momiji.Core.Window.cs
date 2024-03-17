@@ -11,7 +11,7 @@ public class WindowException : Exception
     }
 }
 
-public interface IWindowManagerFactory : IDisposable, IAsyncDisposable
+public interface IUIThreadFactory : IDisposable, IAsyncDisposable
 {
     public record class Param
     {
@@ -22,13 +22,13 @@ public interface IWindowManagerFactory : IDisposable, IAsyncDisposable
     }
 
 
-    Task<IWindowManager> StartAsync(
-        IWindowManager.OnStop? onStop = default,
-        IWindowManager.OnUnhandledException? onUnhandledException = default
+    Task<IUIThread> StartAsync(
+        IUIThread.OnStop? onStop = default,
+        IUIThread.OnUnhandledException? onUnhandledException = default
     );
 }
 
-public interface IWindowManager : IDisposable, IAsyncDisposable
+public interface IUIThread : IDisposable, IAsyncDisposable
 {
     public interface IMessage
     {

@@ -5,16 +5,16 @@ using Momiji.Internal.Log;
 
 namespace Momiji.Core.Window;
 
-public class WindowManagerFactory : IWindowManagerFactory
+public sealed class UIThreadFactory : IUIThreadFactory
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private readonly IConfiguration _configuration;
     private bool _disposed;
 
-    private readonly ConcurrentBag<WindowManager> _windowManagerBag = [];
+    private readonly ConcurrentBag<UIThread> _uiThreadBag = [];
 
-    public WindowManagerFactory(
+    public UIThreadFactory(
         IConfiguration configuration,
         ILoggerFactory loggerFactory
     )
@@ -23,12 +23,12 @@ public class WindowManagerFactory : IWindowManagerFactory
         ArgumentNullException.ThrowIfNull(loggerFactory);
 
         _loggerFactory = loggerFactory;
-        _logger = _loggerFactory.CreateLogger<WindowManagerFactory>();
+        _logger = _loggerFactory.CreateLogger<UIThreadFactory>();
 
         _configuration = configuration;
     }
 
-    ~WindowManagerFactory()
+    ~UIThreadFactory()
     {
         Dispose(false);
     }
@@ -39,7 +39,7 @@ public class WindowManagerFactory : IWindowManagerFactory
         GC.SuppressFinalize(this);
     }
 
-    protected virtual void Dispose(bool disposing)
+    private void Dispose(bool disposing)
     {
         if (_disposed)
         {
@@ -64,15 +64,13 @@ public class WindowManagerFactory : IWindowManagerFactory
         GC.SuppressFinalize(this);
     }
 
-    protected async virtual ValueTask DisposeAsyncCore()
+    private async ValueTask DisposeAsyncCore()
     {
         _logger.LogWithLine(LogLevel.Trace, "DisposeAsync start", Environment.CurrentManagedThreadId);
-        var taskList = new List<Task>();
-
-        foreach (var windowManager in _windowManagerBag)
-        {
-            taskList.Add(windowManager.DisposeAsync().AsTask());
-        }
+        var taskList = 
+            _uiThreadBag
+            .Select((uiThread, idx) => uiThread.DisposeAsync().AsTask())
+            .ToList();
 
         try
         {
@@ -83,12 +81,14 @@ public class WindowManagerFactory : IWindowManagerFactory
             _logger.LogWithLine(LogLevel.Error, e, "error", Environment.CurrentManagedThreadId);
         }
 
+        //WindowDebug.PrintAtomNames(_logger);
+
         _logger.LogWithLine(LogLevel.Trace, "DisposeAsync end", Environment.CurrentManagedThreadId);
     }
 
-    public async Task<IWindowManager> StartAsync(
-        IWindowManager.OnStop? onStop = default,
-        IWindowManager.OnUnhandledException? onUnhandledException = default
+    public async Task<IUIThread> StartAsync(
+        IUIThread.OnStop? onStop = default,
+        IUIThread.OnUnhandledException? onUnhandledException = default
     )
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -96,7 +96,7 @@ public class WindowManagerFactory : IWindowManagerFactory
         _logger.LogWithLine(LogLevel.Information, "StartAsync", Environment.CurrentManagedThreadId);
         var tcs = new TaskCompletionSource(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var windowManager = new WindowManager(
+        var uiThread = new UIThread(
             _configuration, 
             _loggerFactory, 
             tcs, 
@@ -104,7 +104,7 @@ public class WindowManagerFactory : IWindowManagerFactory
             onUnhandledException
         );
         await tcs.Task;
-        _windowManagerBag.Add(windowManager);
-        return windowManager;
+        _uiThreadBag.Add(uiThread);
+        return uiThread;
     }
 }

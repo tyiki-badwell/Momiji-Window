@@ -1,7 +1,6 @@
 ﻿using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
-using Momiji.Core.Buffer;
 using Momiji.Internal.Log;
 using Momiji.Internal.Util;
 using Kernel32 = Momiji.Interop.Kernel32.NativeMethods;
@@ -9,7 +8,7 @@ using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
-public class WindowClass : IDisposable
+internal sealed class WindowClass : IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -26,8 +25,8 @@ public class WindowClass : IDisposable
 
     internal WindowClass(
         ILoggerFactory loggerFactory,
-        PinnedDelegate<User32.WNDPROC> wndProc,
-        uint cs,
+        nint wndProcFunctionPointer,
+        User32.WNDCLASSEX.CS classStyle,
         string className
     )
     {
@@ -35,7 +34,7 @@ public class WindowClass : IDisposable
         _logger = _loggerFactory.CreateLogger<WindowClass>();
 
         _className = nameof(WindowClass) + className + Guid.NewGuid().ToString();
-        _lpszClassName = new(_className);
+        _lpszClassName = new(_className, _logger);
 
         //TODO csの排他設定チェック
 
@@ -44,7 +43,7 @@ public class WindowClass : IDisposable
             _windowClass = new User32.WNDCLASSEX
             {
                 cbSize = Marshal.SizeOf<User32.WNDCLASSEX>(),
-                lpfnWndProc = wndProc.FunctionPointer,
+                lpfnWndProc = wndProcFunctionPointer,
                 hInstance = Kernel32.GetModuleHandleW(default),
                 hbrBackground = 5, //COLOR_WINDOW
                 lpszClassName = _lpszClassName.Handle
@@ -57,7 +56,7 @@ public class WindowClass : IDisposable
                 cbSize = Marshal.SizeOf<User32.WNDCLASSEX>()
             };
 
-            using var lpszClassName = new StringToHGlobalUni(className);
+            using var lpszClassName = new StringToHGlobalUniRAII(className, _logger);
 
             {
                 var result = User32.GetClassInfoExW(
@@ -78,23 +77,23 @@ public class WindowClass : IDisposable
             //スーパークラス化する
             _windowClass = windowClass with
             {
-                lpfnWndProc = wndProc.FunctionPointer,
+                lpfnWndProc = wndProcFunctionPointer,
                 hInstance = Kernel32.GetModuleHandleW(default),
                 lpszClassName = _lpszClassName.Handle
             };
 
-            _windowClass.style &= unchecked((uint)~0x00004000); //-GLOBALCLASS
+            _windowClass.style &= ~User32.WNDCLASSEX.CS.GLOBALCLASS;
         }
 
-        if (cs != 0)
+        if (classStyle != User32.WNDCLASSEX.CS.NONE)
         {
-            _windowClass.style |= cs;
+            _windowClass.style |= classStyle;
         }
 
         {
             var atom = User32.RegisterClassExW(ref _windowClass);
             var error = new Win32Exception();
-            _logger.LogWithError(LogLevel.Information, $"RegisterClass [windowClass:{_windowClass}][className:{_className}][atom:{atom}]", error.ToString(), Environment.CurrentManagedThreadId);
+            _logger.LogWithError(LogLevel.Information, $"RegisterClass [windowClass:{_windowClass}][className:{_className}][atom:{atom:X}]", error.ToString(), Environment.CurrentManagedThreadId);
             if (atom == 0)
             {
                 throw error;
@@ -113,7 +112,7 @@ public class WindowClass : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    protected virtual void Dispose(bool disposing)
+    private void Dispose(bool disposing)
     {
         if (_disposed)
         {
@@ -140,7 +139,7 @@ public class WindowClass : IDisposable
         _disposed = true;
     }
 
-    internal void CallOriginalWindowProc(User32.HWND hwnd, IWindowManager.IMessage message)
+    internal void CallOriginalWindowProc(User32.HWND hwnd, IUIThread.IMessage message)
     {
         var isWindowUnicode = (hwnd.Handle != User32.HWND.None.Handle) && User32.IsWindowUnicode(hwnd);
 
