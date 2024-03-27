@@ -13,20 +13,18 @@ internal sealed class WindowContext : IDisposable
     private readonly ILogger _logger;
     private bool _disposed;
 
-    private readonly int _uiThreadId;
+    private readonly CancellationTokenSource _cts = new();
 
+    private IUIThreadChecker UIThreadChecker { get; }
     private DispatcherQueue DispatcherQueue { get; }
+    private WindowContextSynchronizationContext WindowContextSynchronizationContext { get; }
     internal WindowClassManager WindowClassManager { get; }
     internal WindowProcedure WindowProcedure { get; }
     internal WindowManager WindowManager { get; }
 
-    private readonly WindowContextSynchronizationContext _windowContextSynchronizationContext;
-    private readonly CancellationTokenSource _processCancel;
-
-    public bool IsEmpty => WindowManager.IsEmpty;
-
-    public WindowContext(
+    internal WindowContext(
         ILoggerFactory loggerFactory,
+        IUIThreadChecker uiThreadChecker,
         IUIThread.OnUnhandledException? onUnhandledException = default
     )
     {
@@ -34,15 +32,14 @@ internal sealed class WindowContext : IDisposable
 
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<WindowContext>();
-        _uiThreadId = Environment.CurrentManagedThreadId;
-        _processCancel = new CancellationTokenSource();
 
-        WindowProcedure = new(_loggerFactory, OnMessage, OnThreadMessage);
-        WindowClassManager = new(loggerFactory, WindowProcedure.FunctionPointer);
-        DispatcherQueue = new(_loggerFactory, onUnhandledException);
-        WindowManager = new(_loggerFactory, WindowProcedure.FunctionPointer);
+        UIThreadChecker = uiThreadChecker;
+        DispatcherQueue = new(_loggerFactory, UIThreadChecker, onUnhandledException);
+        WindowContextSynchronizationContext = new(_loggerFactory, DispatcherQueue);
 
-        _windowContextSynchronizationContext = new(_loggerFactory, DispatcherQueue);
+        WindowProcedure = new(_loggerFactory, UIThreadChecker, OnMessage, OnThreadMessage);
+        WindowClassManager = new(_loggerFactory, WindowProcedure);
+        WindowManager = new(_loggerFactory, WindowProcedure);
     }
 
     ~WindowContext()
@@ -67,42 +64,37 @@ internal sealed class WindowContext : IDisposable
         {
             _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
 
+            _cts.Cancel();
+            //TODO ループの終了は待たずに急に終わってよいか？
+
             WindowManager.Dispose();
-            DispatcherQueue.Dispose();
             WindowClassManager.Dispose();
             WindowProcedure.Dispose();
 
-            _processCancel.Dispose();
+            _cts.Dispose();
         }
 
         _disposed = true;
     }
 
-    internal void Cancel()
-    {
-        if (_processCancel.IsCancellationRequested)
-        {
-            _logger.LogWithLine(LogLevel.Information, "already cancelled.", Environment.CurrentManagedThreadId);
-        }
-        else
-        {
-            _logger.LogWithLine(LogLevel.Information, "cancel.", Environment.CurrentManagedThreadId);
-            _processCancel.Cancel();
-        }
-    }
-
-    internal void RunMessageLoop()
+    internal void RunMessageLoop(
+        TaskCompletionSource startTcs,
+        CancellationToken ct = default
+    )
     {
         var forceCancel = false;
         var cancelled = false;
 
-        var ct = _processCancel.Token;
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, ct);
+        var linkedCt = linkedCts.Token;
 
         using var waitHandlesPin = new PinnedBuffer<nint[]>([
             DispatcherQueue.WaitHandle.SafeWaitHandle.DangerousGetHandle(),
-            ct.WaitHandle.SafeWaitHandle.DangerousGetHandle()
+            linkedCt.WaitHandle.SafeWaitHandle.DangerousGetHandle()
         ]);
-        var handleCount = waitHandlesPin.Target.Length;
+        var handleCount = (uint)waitHandlesPin.Target.Length;
+
+        startTcs.SetResult();
 
         _logger.LogWithLine(LogLevel.Information, "start message loop", Environment.CurrentManagedThreadId);
         while (true)
@@ -121,7 +113,7 @@ internal sealed class WindowContext : IDisposable
                     break;
                 }
             }
-            else if (ct.IsCancellationRequested)
+            else if (linkedCt.IsCancellationRequested)
             {
                 cancelled = true;
 
@@ -141,7 +133,7 @@ internal sealed class WindowContext : IDisposable
                 _logger.LogWithLine(LogLevel.Trace, "MsgWaitForMultipleObjectsEx", Environment.CurrentManagedThreadId);
                 var res =
                     User32.MsgWaitForMultipleObjectsEx(
-                        (uint)handleCount,
+                        handleCount,
                         waitHandlesPin.AddrOfPinnedObject,
                         1000,
                         0x04FF, //QS_ALLINPUT
@@ -178,8 +170,7 @@ internal sealed class WindowContext : IDisposable
                 else
                 {
                     //エラー
-                    var error = new Win32Exception();
-                    throw error;
+                    throw new Win32Exception($"MsgWaitForMultipleObjectsEx [result:{res}]");
                 }
             }
         }
@@ -191,7 +182,7 @@ internal sealed class WindowContext : IDisposable
         _logger.LogWithLine(LogLevel.Trace, "DispatchAsync", Environment.CurrentManagedThreadId);
 
         //TODO 即時実行か遅延実行かの判断はDispatcherQueueに移した方がよいか？
-        if (_uiThreadId == Environment.CurrentManagedThreadId)
+        if (UIThreadChecker.IsActivatedThread)
         {
             _logger.LogWithLine(LogLevel.Trace, "Dispatch called from same thread id then immidiate mode", Environment.CurrentManagedThreadId);
             return func();
@@ -216,38 +207,23 @@ internal sealed class WindowContext : IDisposable
         return await tcs.Task;
     }
 
-    internal IWindow CreateWindow(
-        string windowTitle,
-        NativeWindow? parent,
-        string className,
-        User32.WNDCLASSEX.CS classStyle,
-        IUIThread.OnMessage? onMessage,
-        IUIThread.OnMessage? onMessageAfter
-    )
+    internal async ValueTask<TResult> DispatchAsync<TResult>(Func<IWindow, TResult> item, NativeWindow window)
     {
-        var window =
-            new NativeWindow(
-                _loggerFactory,
-                this,
-                className,
-                classStyle,
-                onMessage,
-                onMessageAfter
-            );
+        _logger.LogWithLine(LogLevel.Trace, "DispatchAsync", Environment.CurrentManagedThreadId);
 
-        window.CreateWindow(
-            windowTitle,
-            parent
-        );
+        TResult func()
+        {
+            return WindowManager.InvokeWithContext(item, window);
+        }
 
-        return window;
+        return await DispatchAsync(func);
     }
 
     private void OnMessage(User32.HWND hwnd, IUIThread.IMessage message)
     {
-        _logger.LogWithMsg(LogLevel.Trace, "OnMessage", User32.HWND.None, message, Environment.CurrentManagedThreadId);
+        _logger.LogWithMsg(LogLevel.Trace, "OnMessage", hwnd, message, Environment.CurrentManagedThreadId);
 
-        using var switchContext = new SwitchSynchronizationContextRAII(_windowContextSynchronizationContext, _logger);
+        using var switchContext = new SwitchSynchronizationContextRAII(WindowContextSynchronizationContext, _logger);
 
         //ウインドウに流す
         WindowManager.OnMessage(hwnd, message);
@@ -257,56 +233,56 @@ internal sealed class WindowContext : IDisposable
     {
         _logger.LogWithMsg(LogLevel.Trace, "OnThreadMessage", User32.HWND.None, message, Environment.CurrentManagedThreadId);
 
-        using var switchContext = new SwitchSynchronizationContextRAII(_windowContextSynchronizationContext, _logger);
+        using var switchContext = new SwitchSynchronizationContextRAII(WindowContextSynchronizationContext, _logger);
 
         //TODO スレッドメッセージ用の処理
 
     }
+}
 
-    //TODO 実験中
-    private sealed class WindowContextSynchronizationContext : SynchronizationContext
+//TODO 実験中
+internal sealed class WindowContextSynchronizationContext : SynchronizationContext
+{
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly ILogger _logger;
+
+    private readonly DispatcherQueue _dispatcherQueue;
+
+    internal WindowContextSynchronizationContext(
+        ILoggerFactory loggerFactory,
+        DispatcherQueue dispatcherQueue
+    )
     {
-        private readonly ILoggerFactory _loggerFactory;
-        private readonly ILogger _logger;
+        _loggerFactory = loggerFactory;
+        _logger = _loggerFactory.CreateLogger<WindowContextSynchronizationContext>();
+        _dispatcherQueue = dispatcherQueue;
+    }
 
-        private readonly DispatcherQueue _dispatcherQueue;
+    public override void Send(SendOrPostCallback d, object? state)
+    {
+        _logger.LogWithLine(LogLevel.Trace, "Send", Environment.CurrentManagedThreadId);
+        throw new NotSupportedException("Send");
+    }
 
-        internal WindowContextSynchronizationContext(
-            ILoggerFactory loggerFactory,
-            DispatcherQueue dispatcherQueue
-        )
-        {
-            _loggerFactory = loggerFactory;
-            _logger = _loggerFactory.CreateLogger<WindowContextSynchronizationContext>();
-            _dispatcherQueue = dispatcherQueue;
-        }
+    public override void Post(SendOrPostCallback d, object? state)
+    {
+        _logger.LogWithLine(LogLevel.Trace, "Post", Environment.CurrentManagedThreadId);
+        _dispatcherQueue.Dispatch(d, state);
+    }
 
-        public override void Send(SendOrPostCallback d, object? state)
-        {
-            _logger.LogWithLine(LogLevel.Trace, "Send", Environment.CurrentManagedThreadId);
-            throw new NotSupportedException("Send");
-        }
+    public override SynchronizationContext CreateCopy()
+    {
+        _logger.LogWithLine(LogLevel.Trace, "CreateCopy", Environment.CurrentManagedThreadId);
+        return this;
+    }
 
-        public override void Post(SendOrPostCallback d, object? state)
-        {
-            _logger.LogWithLine(LogLevel.Trace, "Post", Environment.CurrentManagedThreadId);
-            _dispatcherQueue.Dispatch(d, state);
-        }
+    public override void OperationStarted()
+    {
+        _logger.LogWithLine(LogLevel.Trace, "OperationStarted", Environment.CurrentManagedThreadId);
+    }
 
-        public override SynchronizationContext CreateCopy()
-        {
-            _logger.LogWithLine(LogLevel.Trace, "CreateCopy", Environment.CurrentManagedThreadId);
-            return this;
-        }
-
-        public override void OperationStarted()
-        {
-            _logger.LogWithLine(LogLevel.Trace, "OperationStarted", Environment.CurrentManagedThreadId);
-        }
-
-        public override void OperationCompleted()
-        {
-            _logger.LogWithLine(LogLevel.Trace, "OperationCompleted", Environment.CurrentManagedThreadId);
-        }
+    public override void OperationCompleted()
+    {
+        _logger.LogWithLine(LogLevel.Trace, "OperationCompleted", Environment.CurrentManagedThreadId);
     }
 }

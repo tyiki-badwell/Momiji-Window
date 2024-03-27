@@ -25,7 +25,7 @@ internal sealed class WindowClass : IDisposable
 
     internal WindowClass(
         ILoggerFactory loggerFactory,
-        nint wndProcFunctionPointer,
+        WindowProcedure windowProcedure,
         User32.WNDCLASSEX.CS classStyle,
         string className
     )
@@ -43,9 +43,9 @@ internal sealed class WindowClass : IDisposable
             _windowClass = new User32.WNDCLASSEX
             {
                 cbSize = Marshal.SizeOf<User32.WNDCLASSEX>(),
-                lpfnWndProc = wndProcFunctionPointer,
+                lpfnWndProc = windowProcedure.FunctionPointer,
                 hInstance = Kernel32.GetModuleHandleW(default),
-                hbrBackground = 5, //COLOR_WINDOW
+                hbrBackground = 5 +1, //COLOR_WINDOW
                 lpszClassName = _lpszClassName.Handle
             };
         }
@@ -77,7 +77,7 @@ internal sealed class WindowClass : IDisposable
             //スーパークラス化する
             _windowClass = windowClass with
             {
-                lpfnWndProc = wndProcFunctionPointer,
+                lpfnWndProc = windowProcedure.FunctionPointer,
                 hInstance = Kernel32.GetModuleHandleW(default),
                 lpszClassName = _lpszClassName.Handle
             };
@@ -154,8 +154,6 @@ internal sealed class WindowClass : IDisposable
         }
         else
         {
-            _logger.LogWithMsg(LogLevel.Trace, "CallWindowProc", hwnd, message, Environment.CurrentManagedThreadId);
-
             message.Result = isWindowUnicode
                 ? User32.CallWindowProcW(_originalWndProc, hwnd, (uint)message.Msg, message.WParam, message.LParam)
                 : User32.CallWindowProcA(_originalWndProc, hwnd, (uint)message.Msg, message.WParam, message.LParam)

@@ -16,8 +16,7 @@ internal sealed class WindowProcedure : IDisposable
     private readonly ILogger _logger;
     private bool _disposed;
 
-    private readonly int _uiThreadId;
-    private readonly uint _nativeThreadId;
+    private IUIThreadChecker UIThreadChecker { get; }
 
     private readonly PinnedDelegate<User32.WNDPROC> _wndProc;
     internal nint FunctionPointer => _wndProc.FunctionPointer;
@@ -32,6 +31,7 @@ internal sealed class WindowProcedure : IDisposable
 
     internal WindowProcedure(
         ILoggerFactory loggerFactory,
+        IUIThreadChecker uiThreadChecker,
         OnMessage onMessage,
         OnThreadMessage onThreadMessage
     )
@@ -40,8 +40,8 @@ internal sealed class WindowProcedure : IDisposable
 
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<WindowContext>();
-        _uiThreadId = Environment.CurrentManagedThreadId;
-        _nativeThreadId = Kernel32.GetCurrentThreadId();
+        UIThreadChecker = uiThreadChecker;
+
 
         _onMessage = onMessage;
         _onThreadMessage = onThreadMessage;
@@ -109,19 +109,11 @@ internal sealed class WindowProcedure : IDisposable
             };
             Kernel32.GetStartupInfoW(ref si);
             var error = new Win32Exception();
-            _logger.LogWithError(LogLevel.Information, $"GetStartupInfoW [{si.dwFlags}][{si.wShowWindow}]", error.ToString(), Environment.CurrentManagedThreadId);
+            _logger.LogWithError(LogLevel.Information, $"GetStartupInfoW [dwFlags:{si.dwFlags}][wShowWindow:{si.wShowWindow}]", error.ToString(), Environment.CurrentManagedThreadId);
         }
     }
 
-    private void ThrowIfCalledFromOtherThread()
-    {
-        if (_uiThreadId != Environment.CurrentManagedThreadId)
-        {
-            throw new InvalidOperationException($"called from invalid thread id [construct:{_uiThreadId:X}] [current:{Environment.CurrentManagedThreadId:X}]");
-        }
-    }
-
-    public nint SendMessage(
+    internal nint SendMessage(
         User32.HWND hwnd,
         uint nMsg,
         nint wParam,
@@ -145,12 +137,21 @@ internal sealed class WindowProcedure : IDisposable
         if (error.NativeErrorCode != 0)
         {
             //UIPIに引っかかると5が返ってくる
-            throw error;
+
+            if (nMsg == 0x0010 && error.NativeErrorCode == 1400)
+            {
+                //直接呼出しで、WM_CLOSEで1400が返ってくるのはOKにする
+                //TODO 直接呼出ししたことの判定方法　CLOSEのキャンセルもある　そもそもココで判定したくない
+            }
+            else
+            {
+                throw error;
+            }
         }
         return result;
     }
 
-    public void PostMessage(
+    internal void PostMessage(
         User32.HWND hwnd,
         uint nMsg,
         nint wParam,
@@ -163,13 +164,13 @@ internal sealed class WindowProcedure : IDisposable
 
         if ( 
                 (hwnd.Handle == User32.HWND.None.Handle)
-           &&   (_uiThreadId != Environment.CurrentManagedThreadId)
+           &&   (!UIThreadChecker.IsActivatedThread)
         )
         {
             _logger.LogWithWndProcParam(LogLevel.Trace, "PostThreadMessageW", hwnd, nMsg, wParam, lParam, Environment.CurrentManagedThreadId);
             result =
                 User32.PostThreadMessageW(
-                    _nativeThreadId,
+                    UIThreadChecker.NativeThreadId,
                     nMsg,
                     wParam,
                     lParam
@@ -199,12 +200,12 @@ internal sealed class WindowProcedure : IDisposable
         }
     }
 
-    public void DispatchMessage()
+    internal void DispatchMessage()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         //UIスレッドで呼び出す必要アリ
-        ThrowIfCalledFromOtherThread();
+        UIThreadChecker.ThrowIfCalledFromOtherThread();
 
         var msg = new User32.MSG();
 
@@ -365,7 +366,7 @@ internal sealed class WindowProcedure : IDisposable
         public readonly nint LParam = lParam;
     }
 
-    public void ThrowIfOccurredInWndProc()
+    internal void ThrowIfOccurredInWndProc()
     {
         //TODO 何かのコンテキストに移す
         _logger.LogWithLine(LogLevel.Trace, $"ThrowIfOccurredInWndProc [count:{_wndProcExceptionStack.Count}]", Environment.CurrentManagedThreadId);

@@ -84,9 +84,12 @@ public class WindowProcedureTest : IDisposable
         var factory = new TaskFactory();
         var main = factory.StartNew(() =>
         {
+            var uiThreadActivator = new UIThreadActivator(_loggerFactory);
+
             _logger.LogInformation($"Åöthread:[{Environment.CurrentManagedThreadId:X}] task start");
             using var proc = new WindowProcedure(
-                _loggerFactory, 
+                _loggerFactory,
+                uiThreadActivator,
                 (hwnd, message) => {
                     _logger.LogInformation($"Åöthread:[{Environment.CurrentManagedThreadId:X}] OnMessage {hwnd:X} {message}");
 
@@ -129,7 +132,8 @@ public class WindowProcedureTest : IDisposable
                 }
             );
 
-            using var classManager = new WindowClassManager(_loggerFactory, proc.FunctionPointer);
+            using var active = uiThreadActivator.Activate();
+            using var classManager = new WindowClassManager(_loggerFactory, proc);
             var windowClass = classManager.QueryWindowClass(string.Empty, 0);
 
             {

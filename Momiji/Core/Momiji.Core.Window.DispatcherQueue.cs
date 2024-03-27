@@ -11,30 +11,29 @@ internal sealed class DispatcherQueue : IDisposable
     private readonly ILogger _logger;
     private bool _disposed;
 
-    private readonly int _uiThreadId;
-
     //TODO RTWQにする
     private readonly ConcurrentQueue<object> _queue = new();
     private readonly ManualResetEventSlim _queueEvent = new();
 
-    private readonly DispatcherQueueSynchronizationContext _dispatcherQueueSynchronizationContext;
+    private DispatcherQueueSynchronizationContext DispatcherQueueSynchronizationContext { get; }
+    private IUIThreadChecker UIThreadChecker { get; }
 
-    public WaitHandle WaitHandle => _queueEvent.WaitHandle;
+    internal WaitHandle WaitHandle => _queueEvent.WaitHandle;
 
     private readonly IUIThread.OnUnhandledException? _onUnhandledException;
 
-    public DispatcherQueue(
+    internal DispatcherQueue(
         ILoggerFactory loggerFactory,
+        IUIThreadChecker uiThreadChecker,
         IUIThread.OnUnhandledException? onUnhandledException = default
     )
     {
-        _uiThreadId = Environment.CurrentManagedThreadId;
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<DispatcherQueue>();
-        _dispatcherQueueSynchronizationContext = new(_loggerFactory, this);
-        _onUnhandledException = onUnhandledException;
+        UIThreadChecker = uiThreadChecker;
 
-        _logger.LogWithLine(LogLevel.Trace, $"DispatcherQueue [uiThreadId:{_uiThreadId}]", Environment.CurrentManagedThreadId);
+        DispatcherQueueSynchronizationContext = new(_loggerFactory, this);
+        _onUnhandledException = onUnhandledException;
     }
 
     ~DispatcherQueue()
@@ -58,44 +57,45 @@ internal sealed class DispatcherQueue : IDisposable
         if (disposing)
         {
             _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
+
+            //TODO 終了する前にQueueにタスクがある場合の掃除
+            if (!_queue.IsEmpty)
+            {
+                _logger.LogWithLine(LogLevel.Warning, $"queue left count {_queue.Count}", Environment.CurrentManagedThreadId);
+            }
+
             _queueEvent.Dispose();
         }
 
         _disposed = true;
     }
 
-    public void Dispatch(Action action)
+    internal void Dispatch(Action action)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        UIThreadChecker.ThrowIfNoActive();
 
         _logger.LogWithLine(LogLevel.Trace, "Dispatch Action", Environment.CurrentManagedThreadId);
         _queue.Enqueue(action);
         _queueEvent.Set();
     }
 
-    public void Dispatch(SendOrPostCallback callback, object? param)
+    internal void Dispatch(SendOrPostCallback callback, object? param)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        UIThreadChecker.ThrowIfNoActive();
 
         _logger.LogWithLine(LogLevel.Trace, "Dispatch SendOrPostCallback", Environment.CurrentManagedThreadId);
         _queue.Enqueue((callback, param));
         _queueEvent.Set();
     }
 
-    private void ThrowIfCalledFromOtherThread()
-    {
-        if (_uiThreadId != Environment.CurrentManagedThreadId)
-        {
-            throw new InvalidOperationException($"called from invalid thread id [construct:{_uiThreadId:X}] [current:{Environment.CurrentManagedThreadId:X}]");
-        }
-    }
-
-    public void DispatchQueue()
+    internal void DispatchQueue()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         //UIスレッドで呼び出す必要アリ
-        ThrowIfCalledFromOtherThread();
+        UIThreadChecker.ThrowIfCalledFromOtherThread();
 
         _logger.LogWithLine(LogLevel.Trace, $"Queue count [{_queue.Count}]", Environment.CurrentManagedThreadId);
         _queueEvent.Reset();
@@ -106,7 +106,7 @@ internal sealed class DispatcherQueue : IDisposable
 
             //TODO ここで実行コンテキスト？
 
-            using var switchContext = new SwitchSynchronizationContextRAII(_dispatcherQueueSynchronizationContext, _logger);
+            using var switchContext = new SwitchSynchronizationContextRAII(DispatcherQueueSynchronizationContext, _logger);
             try
             {
                 if (item is Action action)
@@ -138,51 +138,51 @@ internal sealed class DispatcherQueue : IDisposable
             _logger.LogWithLine(LogLevel.Trace, "Invoke end", Environment.CurrentManagedThreadId);
         }
     }
+}
 
-    //TODO 実験中
-    private sealed class DispatcherQueueSynchronizationContext : SynchronizationContext
+//TODO 実験中
+internal sealed class DispatcherQueueSynchronizationContext : SynchronizationContext
+{
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly ILogger _logger;
+
+    private readonly DispatcherQueue _dispatcherQueue;
+
+    internal DispatcherQueueSynchronizationContext(
+        ILoggerFactory loggerFactory,
+        DispatcherQueue dispatcherQueue
+    )
     {
-        private readonly ILoggerFactory _loggerFactory;
-        private readonly ILogger _logger;
+        _loggerFactory = loggerFactory;
+        _logger = _loggerFactory.CreateLogger<DispatcherQueueSynchronizationContext>();
+        _dispatcherQueue = dispatcherQueue;
+    }
 
-        private readonly DispatcherQueue _dispatcherQueue;
+    public override void Send(SendOrPostCallback d, object? state)
+    {
+        _logger.LogWithLine(LogLevel.Trace, "Send", Environment.CurrentManagedThreadId);
+        throw new NotSupportedException("Send");
+    }
 
-        internal DispatcherQueueSynchronizationContext(
-            ILoggerFactory loggerFactory,
-            DispatcherQueue dispatcherQueue
-        )
-        {
-            _loggerFactory = loggerFactory;
-            _logger = _loggerFactory.CreateLogger<DispatcherQueueSynchronizationContext>();
-            _dispatcherQueue = dispatcherQueue;
-        }
+    public override void Post(SendOrPostCallback d, object? state)
+    {
+        _logger.LogWithLine(LogLevel.Trace, "Post", Environment.CurrentManagedThreadId);
+        _dispatcherQueue.Dispatch(d, state);
+    }
 
-        public override void Send(SendOrPostCallback d, object? state)
-        {
-            _logger.LogWithLine(LogLevel.Trace, "Send", Environment.CurrentManagedThreadId);
-            throw new NotSupportedException("Send");
-        }
+    public override SynchronizationContext CreateCopy()
+    {
+        _logger.LogWithLine(LogLevel.Trace, "CreateCopy", Environment.CurrentManagedThreadId);
+        return this;
+    }
 
-        public override void Post(SendOrPostCallback d, object? state)
-        {
-            _logger.LogWithLine(LogLevel.Trace, "Post", Environment.CurrentManagedThreadId);
-            _dispatcherQueue.Dispatch(d, state);
-        }
+    public override void OperationStarted()
+    {
+        _logger.LogWithLine(LogLevel.Trace, "OperationStarted", Environment.CurrentManagedThreadId);
+    }
 
-        public override SynchronizationContext CreateCopy()
-        {
-            _logger.LogWithLine(LogLevel.Trace, "CreateCopy", Environment.CurrentManagedThreadId);
-            return this;
-        }
-
-        public override void OperationStarted()
-        {
-            _logger.LogWithLine(LogLevel.Trace, "OperationStarted", Environment.CurrentManagedThreadId);
-        }
-
-        public override void OperationCompleted()
-        {
-            _logger.LogWithLine(LogLevel.Trace, "OperationCompleted", Environment.CurrentManagedThreadId);
-        }
+    public override void OperationCompleted()
+    {
+        _logger.LogWithLine(LogLevel.Trace, "OperationCompleted", Environment.CurrentManagedThreadId);
     }
 }

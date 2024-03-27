@@ -10,7 +10,7 @@ internal sealed class WindowClassManager : IDisposable
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private bool _disposed;
-    private readonly nint _wndProcFunctionPointer;
+    private WindowProcedure WindowProcedure { get; }
 
     private sealed record WindowClassMapKey(
         string ClassName,
@@ -21,14 +21,14 @@ internal sealed class WindowClassManager : IDisposable
 
     public WindowClassManager(
         ILoggerFactory loggerFactory,
-        nint wndProcFunctionPointer
+        WindowProcedure windowProcedure
     )
     {
         ArgumentNullException.ThrowIfNull(loggerFactory);
 
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<WindowClassManager>();
-        _wndProcFunctionPointer = wndProcFunctionPointer;
+        WindowProcedure = windowProcedure;
     }
 
     ~WindowClassManager()
@@ -75,7 +75,7 @@ internal sealed class WindowClassManager : IDisposable
         var queryClassStyle = classStyle;
 
         return _windowClassMap.GetOrAdd(new(queryClassName, queryClassStyle), (key) => {
-            return new WindowClass(_loggerFactory, _wndProcFunctionPointer, key.ClassStyle, key.ClassName);
+            return new WindowClass(_loggerFactory, WindowProcedure, key.ClassStyle, key.ClassName);
         });
     }
 }

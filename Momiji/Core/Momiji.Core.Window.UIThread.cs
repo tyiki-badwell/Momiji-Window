@@ -1,8 +1,7 @@
-﻿using System.ComponentModel;
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using Momiji.Core.Buffer;
 using Momiji.Internal.Log;
+using Kernel32 = Momiji.Interop.Kernel32.NativeMethods;
 using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
@@ -14,12 +13,15 @@ internal sealed class UIThread : IUIThread
     private bool _disposed;
 
     private readonly Task _processTask;
+    private readonly CancellationTokenSource _processCancel;
 
-    private WindowContext? _windowContext;
+    private UIThreadActivator UIThreadActivator { get; }
+
+    private WindowContext WindowContext { get; }
 
     private readonly IUIThreadFactory.Param _param;
 
-    public UIThread(
+    internal UIThread(
         IConfiguration configuration,
         ILoggerFactory loggerFactory,
         TaskCompletionSource startTcs,
@@ -32,14 +34,17 @@ internal sealed class UIThread : IUIThread
 
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<UIThread>();
+        UIThreadActivator = new(_loggerFactory);
+        WindowContext = new(_loggerFactory, UIThreadActivator, onUnhandledException);
 
         _param = new IUIThreadFactory.Param();
         configuration.GetSection($"{typeof(UIThread).FullName}").Bind(_param);
 
+        _processCancel = new CancellationTokenSource();
+
         _processTask = Start(
             startTcs, 
-            onStop, 
-            onUnhandledException
+            onStop
         );
     }
 
@@ -91,13 +96,22 @@ internal sealed class UIThread : IUIThread
             //_desktop?.Close();
             //_windowStation?.Close();
 
+            _processCancel.Dispose();
         }
         _logger.LogWithLine(LogLevel.Trace, "DisposeAsync end", Environment.CurrentManagedThreadId);
     }
 
     private async Task CancelAsync()
     {
-        _windowContext?.Cancel();
+        if (_processCancel.IsCancellationRequested)
+        {
+            _logger.LogWithLine(LogLevel.Information, "already cancelled.", Environment.CurrentManagedThreadId);
+        }
+        else
+        {
+            _logger.LogWithLine(LogLevel.Information, "cancel.", Environment.CurrentManagedThreadId);
+            _processCancel.Cancel();
+        }
 
         try
         {
@@ -112,7 +126,7 @@ internal sealed class UIThread : IUIThread
     public async ValueTask<TResult> DispatchAsync<TResult>(Func<TResult> func)
     {
         CheckRunning();
-        return await _windowContext!.DispatchAsync(func);
+        return await WindowContext.DispatchAsync(func);
     }
 
     private void CheckRunning()
@@ -140,25 +154,31 @@ internal sealed class UIThread : IUIThread
                 : User32.WNDCLASSEX.CS.NONE
                 ;
 
-        return _windowContext!.CreateWindow(
+        var window =
+            new NativeWindow(
+                _loggerFactory,
+                WindowContext,
+                className,
+                classStyle,
+                onMessage,
+                onMessageAfter
+            );
+
+        window.CreateWindow(
             windowTitle,
-            (parent as NativeWindow),
-            className,
-            classStyle,
-            onMessage,
-            onMessageAfter
+            (parent as NativeWindow)
         );
+
+        return window;
     }
 
     private Task<Task> Start(
         TaskCompletionSource startTcs,
-        IUIThread.OnStop? onStop = default,
-        IUIThread.OnUnhandledException? onUnhandledException = default
+        IUIThread.OnStop? onStop = default
     )
     {
         return Run(
-            startTcs,
-            onUnhandledException
+            startTcs
         ).ContinueWith(async (task) => {
             //TODO このタスクでcontinue withすると、UIスレッドでQueue登録してスレッド終了し、QueueのCOMアクセスが失敗する
 
@@ -186,8 +206,7 @@ internal sealed class UIThread : IUIThread
     }
 
     private Task Run(
-        TaskCompletionSource startTcs,
-        IUIThread.OnUnhandledException? onUnhandledException = default
+        TaskCompletionSource startTcs
     )
     {
         var tcs = new TaskCompletionSource(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
@@ -197,12 +216,10 @@ internal sealed class UIThread : IUIThread
 
             try
             {
-                using var windowContext = new WindowContext(_loggerFactory, onUnhandledException);
-                _windowContext = windowContext;
+                using var active = UIThreadActivator.Activate();
 
-                startTcs.SetResult();
+                WindowContext.RunMessageLoop(startTcs, _processCancel.Token);
 
-                windowContext.RunMessageLoop();
                 _logger.LogWithLine(LogLevel.Information, "message loop normal end.", Environment.CurrentManagedThreadId);
 
                 //TODO DispatcherQueueをdisposeした後でSendOrPostCallbackが呼ばれる場合がある. 待つ方法？
@@ -214,10 +231,7 @@ internal sealed class UIThread : IUIThread
                 startTcs.TrySetException(e);
                 tcs.SetException(e);
             }
-            finally
-            {
-                _windowContext = default;
-            }
+
             tcs.TrySetResult();
 
             _logger.LogWithLine(LogLevel.Information, "*** thread end ***", Environment.CurrentManagedThreadId);
@@ -233,5 +247,112 @@ internal sealed class UIThread : IUIThread
         thread.Start();
 
         return tcs.Task;
+    }
+}
+
+internal interface IUIThreadChecker
+{
+    bool IsActivatedThread
+    {
+        get;
+    }
+    void ThrowIfCalledFromOtherThread();
+    void ThrowIfNoActive();
+    uint NativeThreadId
+    {
+        get;
+    }
+}
+
+internal class UIThreadActivator : IUIThreadChecker
+{
+    private readonly ILoggerFactory _loggerFactory;
+    internal int _uiThreadId;
+    public uint NativeThreadId
+    {
+        get; private set;
+    }
+
+    internal UIThreadActivator(
+        ILoggerFactory loggerFactory
+    )
+    {
+        _loggerFactory = loggerFactory;
+    }
+
+    internal IDisposable Activate()
+    {
+        return new Token(this);
+    }
+
+    public bool IsActivatedThread => (_uiThreadId == Environment.CurrentManagedThreadId);
+
+    public void ThrowIfCalledFromOtherThread()
+    {
+        if (!IsActivatedThread)
+        {
+            throw new InvalidOperationException($"called from invalid thread id [activate:{_uiThreadId:X}] [current:{Environment.CurrentManagedThreadId:X}]");
+        }
+    }
+
+    public void ThrowIfNoActive()
+    {
+        if (_uiThreadId == 0)
+        {
+            throw new InvalidOperationException($"no active");
+        }
+    }
+
+    internal class Token : IDisposable
+    {
+        private readonly ILogger _logger;
+        private readonly UIThreadActivator _activator;
+        private bool _disposed;
+
+        internal Token(
+            UIThreadActivator activator
+        )
+        {
+            _activator = activator;
+            _logger = _activator._loggerFactory.CreateLogger<Token>();
+
+            var threadId = Environment.CurrentManagedThreadId;
+
+            if (0 != Interlocked.CompareExchange(ref _activator._uiThreadId, threadId, 0))
+            {
+                throw new InvalidOperationException($"already activated [uiThreadId:{_activator._uiThreadId}][now:{Environment.CurrentManagedThreadId}]");
+            }
+            _activator.NativeThreadId = Kernel32.GetCurrentThreadId();
+
+            _logger.LogWithLine(LogLevel.Trace, $"DispatcherQueue Activate [uiThreadId:{_activator._uiThreadId}]", Environment.CurrentManagedThreadId);
+        }
+
+        ~Token()
+        {
+            Dispose(false);
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        private void Dispose(bool disposing)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (disposing)
+            {
+                _logger.LogWithLine(LogLevel.Trace, $"DispatcherQueue Disactivate [uiThreadId:{_activator._uiThreadId}]", Environment.CurrentManagedThreadId);
+                _activator._uiThreadId = 0;
+                _activator.NativeThreadId = 0;
+            }
+
+            _disposed = true;
+        }
     }
 }

@@ -197,6 +197,17 @@ public class WindowUnitTest : IDisposable
     }
 
     [TestMethod]
+    public async Task TestCloseImmidiateCall()
+    {
+        await using var factory = new UIThreadFactory(CreateConfiguration(), _loggerFactory);
+        await using var thread = await factory.StartAsync();
+
+        var window = thread.CreateWindow("window");
+
+        await window.DispatchAsync((window) => { window.Close(); return 0; });
+    }
+
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public async Task TestOnMassage(bool close)

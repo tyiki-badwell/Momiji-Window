@@ -43,7 +43,7 @@ public class Program
         var windowB = b.CreateWindow("windowB");
 
         var buttonA = a.CreateWindow("buttonA", windowA, "BUTTON", (sender, message) => {
-            //logger?.LogInformation($"       buttonA:{message}");
+            logger?.LogInformation($"       buttonA:{message}");
             switch (message.Msg)
             {
                 case 0x0084: //WM_NCHITTEST
@@ -86,14 +86,22 @@ public class Program
             }
         
         });
-        var textA = a.CreateWindow("textA", windowA, "EDIT");
+        var textA = a.CreateWindow("textA", windowA, "EDIT", (sender, message) => {
+            logger?.LogInformation($"       textA:{message}");
+        });
 
-        var buttonB = b.CreateWindow("buttonB", windowB, "BUTTON");
-        var textB = b.CreateWindow("textB", windowB, "EDIT");
+        var buttonB = b.CreateWindow("buttonB", windowB, "BUTTON", (sender, message) => {
+            logger?.LogInformation($"       buttonB:{message}");
+        });
+        var textB = b.CreateWindow("textB", windowB, "EDIT", (sender, message) => {
+            logger?.LogInformation($"       textB:{message}");
+        });
 
         //BスレッドからAにボタン追加
         //TODO handleを保存できてない
-        var buttonC = b.CreateWindow("buttonC", windowA, "BUTTON");
+        var buttonC = b.CreateWindow("buttonC", windowA, "BUTTON", (sender, message) => {
+            logger?.LogInformation($"       buttonC:{message}");
+        });
 
         //WPFコンテンツを挿入する
         //AウインドウのスレッドでAウインドウに追加
@@ -118,8 +126,7 @@ public class Program
         await buttonA.MoveAsync(10, 10, 200, 80, true);
         await textA.MoveAsync(10, 300, 200, 80, true);
 
-        //TODO 失敗する
-        //buttonC.Move(300, 100, 200, 80, true);
+        await buttonC.MoveAsync(300, 100, 200, 80, true);
 
         await windowA.ShowAsync(1);
 

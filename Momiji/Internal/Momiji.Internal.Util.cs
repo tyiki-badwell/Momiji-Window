@@ -87,3 +87,4 @@ internal readonly ref struct SwitchSynchronizationContextRAII
         _logger.LogWithLine(LogLevel.Trace, $"restore context [{_oldContext}]", Environment.CurrentManagedThreadId);
     }
 }
+

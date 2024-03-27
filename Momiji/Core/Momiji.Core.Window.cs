@@ -21,7 +21,6 @@ public interface IUIThreadFactory : IDisposable, IAsyncDisposable
         }
     }
 
-
     Task<IUIThread> StartAsync(
         IUIThread.OnStop? onStop = default,
         IUIThread.OnUnhandledException? onUnhandledException = default
@@ -62,22 +61,8 @@ public interface IWindow
         get;
     }
     ValueTask<T> DispatchAsync<T>(Func<IWindow, T> item);
+
     bool Close();
-    ValueTask<bool> MoveAsync(
-        int x,
-        int y,
-        int width,
-        int height,
-        bool repaint
-    );
-
-    ValueTask<bool> ShowAsync(
-        int cmdShow
-    );
-
-    ValueTask<bool> SetWindowStyleAsync(
-        int style
-    );
 
     nint SendMessage(
         int nMsg,

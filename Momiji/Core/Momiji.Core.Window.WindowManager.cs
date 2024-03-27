@@ -16,9 +16,9 @@ internal sealed class WindowManager : IDisposable
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private bool _disposed;
-    private readonly nint _wndProcFunctionPointer;
+    private WindowProcedure WindowProcedure { get; }
 
-    public bool IsEmpty => _windowMap.IsEmpty;
+    internal bool IsEmpty => _windowMap.IsEmpty;
 
     private readonly ConcurrentDictionary<User32.HWND, NativeWindow> _windowMap = [];
     private readonly Stack<NativeWindow> _windowStack = [];
@@ -29,17 +29,16 @@ internal sealed class WindowManager : IDisposable
     //TODO Windowに移動する
     private readonly ConcurrentDictionary<User32.HWND, nint> _oldWndProcMap = [];
 
-    public WindowManager(
+    internal WindowManager(
         ILoggerFactory loggerFactory,
-        nint wndProcFunctionPointer
+        WindowProcedure windowProcedure
     )
     {
         ArgumentNullException.ThrowIfNull(loggerFactory);
 
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<WindowContext>();
-        _wndProcFunctionPointer = wndProcFunctionPointer;
-
+        WindowProcedure = windowProcedure;
     }
 
     ~WindowManager()
@@ -88,7 +87,7 @@ internal sealed class WindowManager : IDisposable
             _oldContext = User32.SetThreadDpiAwarenessContext(User32.DPI_AWARENESS_CONTEXT.PER_MONITOR_AWARE_V2);
 
             var error = new Win32Exception();
-            _logger.LogWithHWndAndError(LogLevel.Trace, $"ON SetThreadDpiAwarenessContext [{_oldContext:X} -> PER_MONITOR_AWARE_V2]", _window._hWindow, error.ToString(), Environment.CurrentManagedThreadId);
+            _logger.LogWithHWndAndError(LogLevel.Trace, $"ON SetThreadDpiAwarenessContext [{_oldContext:X} -> PER_MONITOR_AWARE_V2]", _window.HWindow, error.ToString(), Environment.CurrentManagedThreadId);
         }
 
         public void Dispose()
@@ -98,7 +97,7 @@ internal sealed class WindowManager : IDisposable
                 var oldContext = User32.SetThreadDpiAwarenessContext(_oldContext);
 
                 var error = new Win32Exception();
-                _logger.LogWithHWndAndError(LogLevel.Trace, $"OFF SetThreadDpiAwarenessContext [{oldContext} -> {_oldContext}]", _window._hWindow, error.ToString(), Environment.CurrentManagedThreadId);
+                _logger.LogWithHWndAndError(LogLevel.Trace, $"OFF SetThreadDpiAwarenessContext [{oldContext} -> {_oldContext}]", _window.HWindow, error.ToString(), Environment.CurrentManagedThreadId);
             }
         }
     }
@@ -194,27 +193,18 @@ internal sealed class WindowManager : IDisposable
         {
             WindowDebug.CheckDpiAwarenessContext(_logger, hwnd);
 
+            WndProcBefore(hwnd, message);
+            if (message.Handled)
             {
-                WndProcBefore(hwnd, message);
-                if (message.Handled)
-                {
-                    return;
-                }
+                return;
             }
 
             if (TryGetWindow(hwnd, out var window))
             {
                 //ウインドウに流す
                 window.WndProc(message);
-                if (message.Handled)
-                {
-                    _logger.LogWithMsg(LogLevel.Trace, "handled msg", hwnd, message, Environment.CurrentManagedThreadId);
-                    return;
-                }
-                else
-                {
-                    _logger.LogWithMsg(LogLevel.Trace, "no handled msg", hwnd, message, Environment.CurrentManagedThreadId);
-                }
+
+                WndProcAfter(message, window);
             }
             else
             {
@@ -222,6 +212,16 @@ internal sealed class WindowManager : IDisposable
                 message.Result = CallOriginalWindowProc(hwnd, message);
                 message.Handled = true;
             }
+
+            if (message.Handled)
+            {
+                _logger.LogWithMsg(LogLevel.Trace, "handled msg", hwnd, message, Environment.CurrentManagedThreadId);
+            }
+            else
+            {
+                _logger.LogWithMsg(LogLevel.Trace, "no handled msg", hwnd, message, Environment.CurrentManagedThreadId);
+            }
+
         }
         catch (Exception)
         {
@@ -236,24 +236,13 @@ internal sealed class WindowManager : IDisposable
         switch (message.Msg)
         {
             case 0x0081://WM_NCCREATE
-                _logger.LogWithHWnd(LogLevel.Trace, "WM_NCCREATE", hwnd, Environment.CurrentManagedThreadId);
-                OnWM_NCCREATE(hwnd);
-                break;
-
-            case 0x0082://WM_NCDESTROY
-                _logger.LogWithHWnd(LogLevel.Trace, "WM_NCDESTROY", hwnd, Environment.CurrentManagedThreadId);
-                OnWM_NCDESTROY(hwnd);
-                message.Handled = true;
-                break;
-
-            case 0x0111://WM_COMMAND
-                _logger.LogWithHWnd(LogLevel.Trace, "WM_COMMAND", hwnd, Environment.CurrentManagedThreadId);
-                //OnWM_COMMAND(hwnd, message.WParam, message.LParam);
+                _logger.LogWithHWnd(LogLevel.Trace, "WM_NCCREATE Before", hwnd, Environment.CurrentManagedThreadId);
+                OnWM_NCCREATE_Before(hwnd);
                 break;
 
             case 0x0210://WM_PARENTNOTIFY
-                _logger.LogWithHWnd(LogLevel.Trace, "WM_PARENTNOTIFY", hwnd, Environment.CurrentManagedThreadId);
-                OnWM_PARENTNOTIFY(hwnd, message.WParam, message.LParam);
+                _logger.LogWithHWnd(LogLevel.Trace, "WM_PARENTNOTIFY Before", hwnd, Environment.CurrentManagedThreadId);
+                OnWM_PARENTNOTIFY_Before(hwnd, message.WParam, message.LParam);
                 break;
         }
     }
@@ -299,7 +288,7 @@ internal sealed class WindowManager : IDisposable
     }
     */
 
-    private void OnWM_PARENTNOTIFY(User32.HWND hwnd, nint wParam, nint lParam)
+    private void OnWM_PARENTNOTIFY_Before(User32.HWND hwnd, nint wParam, nint lParam)
     {
         //WParam 子のウインドウメッセージ
         //LParam 下位ワード　X座標／上位ワード　Y座標
@@ -341,8 +330,6 @@ internal sealed class WindowManager : IDisposable
                     else
                     {
                         //TODO windowに、HWNDのアサインとWndProcの差し替えを設ける
-
-
                         BindWndProc(hwnd, childHWnd);
                     }
 
@@ -367,25 +354,13 @@ internal sealed class WindowManager : IDisposable
         }
     }
 
-    private void OnWM_NCCREATE(User32.HWND hwnd)
+    private void OnWM_NCCREATE_Before(User32.HWND hwnd)
     {
         //TODO トップレベルウインドウだったときのみ呼び出す
         if (!User32.EnableNonClientDpiScaling(hwnd))
         {
             var error = new Win32Exception();
             _logger.LogWithHWndAndError(LogLevel.Error, "EnableNonClientDpiScaling failed", hwnd, error.ToString(), Environment.CurrentManagedThreadId);
-        }
-    }
-
-    private void OnWM_NCDESTROY(User32.HWND hwnd)
-    {
-        if (UnbindWindow(hwnd))
-        {
-            //TODO メインウインドウなら、自身を終わらせる動作を入れるか？
-        }
-        else
-        {
-
         }
     }
 
@@ -407,6 +382,33 @@ internal sealed class WindowManager : IDisposable
                 message.Handled = true;
                 break;
         }
+    }
+
+    private void WndProcAfter(IUIThread.IMessage message, NativeWindow window)
+    {
+        switch (message.Msg)
+        {
+            case 0x0081://WM_NCCREATE
+                _logger.LogWithHWnd(LogLevel.Trace, "WM_NCCREATE After", window.HWindow, Environment.CurrentManagedThreadId);
+                OnWM_NCCREATE_After(window);
+                break;
+
+            case 0x0082://WM_NCDESTROY
+                _logger.LogWithHWnd(LogLevel.Trace, "WM_NCDESTROY After", window.HWindow, Environment.CurrentManagedThreadId);
+                OnWM_NCDESTROY_After(window);
+                break;
+        }
+    }
+
+    private void OnWM_NCCREATE_After(NativeWindow window)
+    {
+        //作成に成功してからWindowMapに入れる
+        Add(window);
+    }
+
+    private void OnWM_NCDESTROY_After(NativeWindow window)
+    {
+        Remove(window);
     }
 
     private nint CallOriginalWindowProc(User32.HWND hwnd, IUIThread.IMessage message)
@@ -442,7 +444,7 @@ internal sealed class WindowManager : IDisposable
     private void PrintWindowStack()
     {
         _logger.LogTrace("================================= PrintWindowStack start");
-        _logger.LogWithLine(LogLevel.Trace, $"window stack {string.Join("<-", _windowStack.Select((window, idx) => $"[hash:{window.GetHashCode():X}][handle:{window._hWindow:X}]"))}", Environment.CurrentManagedThreadId);
+        _logger.LogWithLine(LogLevel.Trace, $"window stack {string.Join("<-", _windowStack.Select((window, idx) => $"[hash:{window.GetHashCode():X}][handle:{window.HWindow:X}]"))}", Environment.CurrentManagedThreadId);
         _logger.LogTrace("================================= PrintWindowStack end");
     }
 
@@ -459,11 +461,37 @@ internal sealed class WindowManager : IDisposable
         _logger.LogTrace("================================= PrintWindowMap end");
     }
 
+    private void Add(NativeWindow window)
+    {
+        if (_windowMap.TryAdd(window.HWindow, window))
+        {
+            _logger.LogWithHWnd(LogLevel.Information, "add window map", window.HWindow, Environment.CurrentManagedThreadId);
+        }
+        else
+        {
+            //TODO handleが再利用されている？
+            throw new WindowException($"failed add window map hwnd:[{window.HWindow}]");
+        }
+    }
+
+    private void Remove(NativeWindow window)
+    {
+        if (_windowMap.TryRemove(window.HWindow, out var window_))
+        {
+            _logger.LogWithHWnd(LogLevel.Information, "remove window map", window_.HWindow, Environment.CurrentManagedThreadId);
+            window_.HWindow = User32.HWND.None;
+        }
+        else
+        {
+            throw new WindowException($"failed remove window map hwnd:[{window.HWindow}]");
+        }
+    }
+
     private bool FindWindow(User32.HWND hwnd, [MaybeNullWhen(false)] out NativeWindow window)
     {
         if (_windowMap.TryGetValue(hwnd, out window))
         {
-            _logger.LogWithHWnd(LogLevel.Trace, $"window map found. [hash:{window.GetHashCode():X}]", hwnd, Environment.CurrentManagedThreadId);
+            _logger.LogWithHWnd(LogLevel.Trace, $"in window map [hash:{window.GetHashCode():X}][{window}]", hwnd, Environment.CurrentManagedThreadId);
             return true;
         }
         return false;
@@ -479,53 +507,33 @@ internal sealed class WindowManager : IDisposable
             return true;
         }
 
-        return BindToWindowInStack(hwnd, out window);
-    }
-
-    private bool BindToWindowInStack(User32.HWND hwnd, [MaybeNullWhen(false)] out NativeWindow window)
-    {
         if (_windowStack.TryPeek(out window))
         {
-            _logger.LogWithHWnd(LogLevel.Trace, $"window stack hash:{window.GetHashCode():X}", hwnd, Environment.CurrentManagedThreadId);
-
-            if (window._hWindow.Handle != User32.HWND.None.Handle)
+            if (window.HWindow.Handle == hwnd.Handle)
             {
-                _logger.LogWithHWnd(LogLevel.Trace, "no managed", hwnd, Environment.CurrentManagedThreadId);
-                return false;
+                _logger.LogWithHWnd(LogLevel.Trace, $"in window stack [hash:{window.GetHashCode():X}][{window}]", hwnd, Environment.CurrentManagedThreadId);
+                return true;
             }
-        }
-        else
-        {
-            _logger.LogWithHWnd(LogLevel.Trace, "stack none", hwnd, Environment.CurrentManagedThreadId);
+
+            if (window.HWindow.Handle == User32.HWND.None.Handle)
+            {
+                _logger.LogWithHWnd(LogLevel.Trace, $"in window stack (until create process) [hash:{window.GetHashCode():X}][{window}]", hwnd, Environment.CurrentManagedThreadId);
+                //最速でHWNDを受け取る
+                window.HWindow = hwnd;
+                return true;
+            }
+
+            _logger.LogWithHWnd(LogLevel.Trace, $"in window stack, but other window [hash:{window.GetHashCode():X}][{window}]", hwnd, Environment.CurrentManagedThreadId);
             return false;
         }
-
-        //最速でHWNDを受け取る
-        window._hWindow = hwnd;
-        if (_windowMap.TryAdd(hwnd, window))
-        {
-            _logger.LogWithHWnd(LogLevel.Information, "add window map", hwnd, Environment.CurrentManagedThreadId);
-            return true;
-        }
         else
         {
-            throw new WindowException($"failed add window map hwnd:[{hwnd}]");
-        }
-    }
-
-    private bool UnbindWindow(User32.HWND hwnd)
-    {
-        if (_windowMap.TryRemove(hwnd, out var _))
-        {
-            _logger.LogWithHWnd(LogLevel.Information, "remove window map", hwnd, Environment.CurrentManagedThreadId);
-            return true;
-        }
-        else
-        {
-            _logger.LogWithHWnd(LogLevel.Warning, "failed. remove window map", hwnd, Environment.CurrentManagedThreadId);
+            _logger.LogWithHWnd(LogLevel.Trace, "stack is empty", hwnd, Environment.CurrentManagedThreadId);
             return false;
         }
     }
+
+    //TODO Windowに移動する
 
     private void BindWndProc(
         User32.HWND hwnd,
@@ -536,9 +544,9 @@ internal sealed class WindowManager : IDisposable
 
         if (_oldWndProcMap.TryAdd(childHWnd, nint.Zero))
         {
-            var oldWndProc = ChildWindowSetWindowLong(childHWnd, GWLP_WNDPROC, _wndProcFunctionPointer);
+            var oldWndProc = ChildWindowSetWindowLong(childHWnd, GWLP_WNDPROC, WindowProcedure.FunctionPointer);
 
-            if (oldWndProc == _wndProcFunctionPointer)
+            if (oldWndProc == WindowProcedure.FunctionPointer)
             {
                 //変更前・変更後のWndProcが同じだった＝UIThread経由で作ったWindow　→　先にバイパスしたのにここに来たら異常事態
                 _logger.LogWithHWnd(LogLevel.Information, $"IGNORE childHWnd:[{childHWnd}]", hwnd, Environment.CurrentManagedThreadId);
@@ -580,6 +588,21 @@ internal sealed class WindowManager : IDisposable
         else
         {
             _logger.LogWithHWnd(LogLevel.Warning, $"not found in old wndproc map childHWnd:[{childHWnd}]", hwnd, Environment.CurrentManagedThreadId);
+        }
+    }
+
+    private bool UnbindWindow(User32.HWND hwnd)
+    {
+        if (_windowMap.TryRemove(hwnd, out var window))
+        {
+            _logger.LogWithHWnd(LogLevel.Information, "remove window map", hwnd, Environment.CurrentManagedThreadId);
+            window.HWindow = User32.HWND.None;
+            return true;
+        }
+        else
+        {
+            _logger.LogWithHWnd(LogLevel.Warning, "failed. remove window map", hwnd, Environment.CurrentManagedThreadId);
+            return false;
         }
     }
 

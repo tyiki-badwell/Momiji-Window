@@ -59,6 +59,25 @@ public class DispatcherQueueTest : IDisposable
     }
 
     [TestMethod]
+    public void TestActivate()
+    {
+        var uiThreadActivator = new UIThreadActivator(_loggerFactory);
+        using var active1 = uiThreadActivator.Activate();
+
+        try
+        {
+            using var active2 = uiThreadActivator.Activate();
+            Assert.Fail();
+        }
+        catch (InvalidOperationException e)
+        {
+            //OK
+            _logger.LogInformation(e, "error occurred");
+        }
+    }
+
+
+    [TestMethod]
     [DataRow(false, MethodType.Action)]
     [DataRow(true, MethodType.Action)]
     [DataRow(false, MethodType.SendOrPostCallback)]
@@ -68,23 +87,24 @@ public class DispatcherQueueTest : IDisposable
         MethodType methodType
     )
     {
-        DispatcherQueue? queue_ = default;
-
         var startupTcs = new TaskCompletionSource();
         var mainTcs = new TaskCompletionSource<int>();
+        var uiThreadActivator = new UIThreadActivator(_loggerFactory);
+
+        using var queue = new DispatcherQueue(_loggerFactory, uiThreadActivator, (e) => {
+            _logger.LogInformation(e, $"★thread:[{Environment.CurrentManagedThreadId:X}] OnError");
+            mainTcs.SetException(e);
+            _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] SetException");
+            return true;
+        });
 
         _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] task run");
         var factory = new TaskFactory();
         var main = factory.StartNew(() =>
         {
             _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] task start");
-            using var queue = new DispatcherQueue(_loggerFactory, (e) => {
-                _logger.LogInformation(e, $"★thread:[{Environment.CurrentManagedThreadId:X}] OnError");
-                mainTcs.SetException(e);
-                _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] SetException");
-                return true;
-            });
-            queue_ = queue;
+            //起動
+            using var active = uiThreadActivator.Activate();
 
             startupTcs.SetResult();
             _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] SetResult");
@@ -107,13 +127,11 @@ public class DispatcherQueueTest : IDisposable
         _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] task await start");
         await startupTcs.Task.ContinueWith((task)=> {
 
-            Assert.IsNotNull(queue_);
-
             try
             {
-                //作成したスレッド以外からは呼べない
+                //起動したスレッド以外からは呼べない
                 _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] DispatchQueue start");
-                queue_.DispatchQueue();
+                queue.DispatchQueue();
                 Assert.Fail($"★thread:[{Environment.CurrentManagedThreadId:X}] DispatchQueue end");
             }
             catch (InvalidOperationException e)
@@ -124,11 +142,9 @@ public class DispatcherQueueTest : IDisposable
         });
         _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] task await end");
 
-        Assert.IsNotNull(queue_);
-
         if (methodType == MethodType.Action)
         {
-            queue_.Dispatch(async () =>
+            queue.Dispatch(async () =>
             {
                 _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] delay start");
 
@@ -149,7 +165,7 @@ public class DispatcherQueueTest : IDisposable
         }
         else if (methodType == MethodType.SendOrPostCallback)
         {
-            queue_.Dispatch(async (param) =>
+            queue.Dispatch(async (param) =>
             {
                 _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] delay start");
 
@@ -199,18 +215,18 @@ public class DispatcherQueueTest : IDisposable
 
         try
         {
-            //破棄後は呼べない
+            //停止後は呼べない
             if (methodType == MethodType.Action)
             {
-                queue_.Dispatch(() => { });
+                queue.Dispatch(() => { });
             }
             else if (methodType == MethodType.SendOrPostCallback)
             {
-                queue_.Dispatch((param) => { }, 2);
+                queue.Dispatch((param) => { }, 2);
             }
             Assert.Fail();
         }
-        catch (ObjectDisposedException e)
+        catch (InvalidOperationException e)
         {
             //OK
             _logger.LogInformation(e, "error occurred");
