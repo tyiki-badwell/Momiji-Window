@@ -80,6 +80,16 @@ internal static partial class LogDefine
 
     [Conditional("DEBUG")]
     [LoggerMessage(
+        Message = "thread:[{threadId:X}] hwnd:[{hwnd}] {message} ({file}:{line} {member})"
+    )]
+    internal static partial void LogWithHWnd(this ILogger logger, LogLevel logLevel, Exception exception, string message, User32.HWND hwnd, int threadId,
+        [CallerFilePath] string file = "",
+        [CallerLineNumber] int line = 0,
+        [CallerMemberName] string member = ""
+        );
+
+    [Conditional("DEBUG")]
+    [LoggerMessage(
         Message = "thread:[{threadId:X}] hwnd:[{hwnd}] {message} error:[{error}] ({file}:{line} {member})"
     )]
     internal static partial void LogWithHWndAndError(this ILogger logger, LogLevel logLevel, string message, User32.HWND hwnd, string error, int threadId,

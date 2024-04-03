@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Momiji.Core.Buffer;
 using Momiji.Internal.Debug;
 using Momiji.Internal.Log;
+using Momiji.Internal.Util;
 using Kernel32 = Momiji.Interop.Kernel32.NativeMethods;
 using User32 = Momiji.Interop.User32.NativeMethods;
 
@@ -39,7 +40,7 @@ internal sealed class WindowProcedure : IDisposable
         ArgumentNullException.ThrowIfNull(loggerFactory);
 
         _loggerFactory = loggerFactory;
-        _logger = _loggerFactory.CreateLogger<WindowContext>();
+        _logger = _loggerFactory.CreateLogger<WindowProcedure>();
         UIThreadChecker = uiThreadChecker;
 
 
@@ -200,6 +201,81 @@ internal sealed class WindowProcedure : IDisposable
         }
     }
 
+    internal readonly ref struct SwitchThreadDpiHostingBehaviorMixedRAII
+    {
+        private readonly ILogger _logger;
+        private readonly User32.DPI_HOSTING_BEHAVIOR _oldBehavior;
+
+        public SwitchThreadDpiHostingBehaviorMixedRAII(
+            ILogger logger
+        )
+        {
+            _logger = logger;
+            _oldBehavior = User32.SetThreadDpiHostingBehavior(User32.DPI_HOSTING_BEHAVIOR.MIXED);
+            _logger.LogWithLine(LogLevel.Trace, $"ON SetThreadDpiHostingBehavior [{_oldBehavior} -> MIXED]", Environment.CurrentManagedThreadId);
+        }
+
+        public void Dispose()
+        {
+            if (_oldBehavior != User32.DPI_HOSTING_BEHAVIOR.INVALID)
+            {
+                var oldBehavior = User32.SetThreadDpiHostingBehavior(_oldBehavior);
+                _logger.LogWithLine(LogLevel.Trace, $"OFF SetThreadDpiHostingBehavior [{oldBehavior} -> {_oldBehavior}]", Environment.CurrentManagedThreadId);
+            }
+        }
+    }
+
+    internal User32.HWND CreateWindow(
+        uint dwExStyle,
+        nint lpszClassName,
+        string windowTitle,
+        uint style,
+        int x,
+        int y,
+        int width,
+        int height,
+        User32.HWND hwndParent,
+        nint hMenu,
+        nint hInst
+    )
+    {
+        _logger.LogWithLine(LogLevel.Trace, "CreateWindowEx", Environment.CurrentManagedThreadId);
+
+        //DPI awareness 
+        using var switchBehavior = new SwitchThreadDpiHostingBehaviorMixedRAII(_logger);
+
+        //ウインドウタイトル
+        using var lpszWindowName = new StringToHGlobalUniRAII(windowTitle, _logger);
+
+        var hWindow =
+            User32.CreateWindowExW(
+                dwExStyle,
+                lpszClassName,
+                lpszWindowName.Handle,
+                style,
+                x,
+                y,
+                width,
+                height,
+                hwndParent,
+                hMenu,
+                hInst,
+                nint.Zero
+            );
+        var error = new Win32Exception();
+        _logger.LogWithHWndAndError(LogLevel.Information, "CreateWindowEx result", hWindow, error.ToString(), Environment.CurrentManagedThreadId);
+        if (hWindow.Handle == User32.HWND.None.Handle)
+        {
+            ThrowIfOccurredInWndProc();
+            throw error;
+        }
+
+        var behavior = User32.GetWindowDpiHostingBehavior(hWindow);
+        _logger.LogWithLine(LogLevel.Trace, $"GetWindowDpiHostingBehavior {behavior}", Environment.CurrentManagedThreadId);
+
+        return hWindow;
+    }
+
     internal void DispatchMessage()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -251,6 +327,10 @@ internal sealed class WindowProcedure : IDisposable
                 continue;
             }
 
+
+            //TODO Windowに直接配信するのもアリ？
+
+
             {
                 _logger.LogWithHWnd(LogLevel.Trace, "TranslateMessage", msg.hwnd, Environment.CurrentManagedThreadId);
                 var result = User32.TranslateMessage(ref msg);
@@ -259,7 +339,7 @@ internal sealed class WindowProcedure : IDisposable
             }
 
             {
-                var isWindowUnicode = (msg.hwnd.Handle != User32.HWND.None.Handle) && User32.IsWindowUnicode(msg.hwnd);
+                var isWindowUnicode = User32.IsWindowUnicode(msg.hwnd);
                 _logger.LogWithHWnd(LogLevel.Trace, $"IsWindowUnicode [{isWindowUnicode}]", msg.hwnd, Environment.CurrentManagedThreadId);
 
                 _logger.LogWithHWnd(LogLevel.Trace, "DispatchMessage", msg.hwnd, Environment.CurrentManagedThreadId);

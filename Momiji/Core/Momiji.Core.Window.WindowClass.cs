@@ -154,6 +154,7 @@ internal sealed class WindowClass : IDisposable
         }
         else
         {
+            //スーパークラス化している場合は、オリジナルのプロシージャを実行する
             message.Result = isWindowUnicode
                 ? User32.CallWindowProcW(_originalWndProc, hwnd, (uint)message.Msg, message.WParam, message.LParam)
                 : User32.CallWindowProcA(_originalWndProc, hwnd, (uint)message.Msg, message.WParam, message.LParam)
@@ -161,5 +162,7 @@ internal sealed class WindowClass : IDisposable
             var error = new Win32Exception();
             _logger.LogWithMsgAndError(LogLevel.Trace, "CallWindowProc result", hwnd, message, error.ToString(), Environment.CurrentManagedThreadId);
         }
+
+        message.Handled = true;
     }
 }

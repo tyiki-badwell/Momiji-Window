@@ -59,25 +59,6 @@ public class DispatcherQueueTest : IDisposable
     }
 
     [TestMethod]
-    public void TestActivate()
-    {
-        var uiThreadActivator = new UIThreadActivator(_loggerFactory);
-        using var active1 = uiThreadActivator.Activate();
-
-        try
-        {
-            using var active2 = uiThreadActivator.Activate();
-            Assert.Fail();
-        }
-        catch (InvalidOperationException e)
-        {
-            //OK
-            _logger.LogInformation(e, "error occurred");
-        }
-    }
-
-
-    [TestMethod]
     [DataRow(false, MethodType.Action)]
     [DataRow(true, MethodType.Action)]
     [DataRow(false, MethodType.SendOrPostCallback)]

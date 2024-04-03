@@ -144,7 +144,7 @@ public static class IWindowExtensions
         }
 
         {
-            var (result, error) = window.SetWindowLong(-16, new nint(style)); //GWL_STYLE
+            var (result, error) = window.SetWindowLong(window.HWindow, -16, new nint(style)); //GWL_STYLE
             if (result == nint.Zero && error.NativeErrorCode != 0)
             {
                 window.Logger.LogWithHWndAndError(LogLevel.Error, "SetWindowLong failed", window.HWindow, error.ToString(), Environment.CurrentManagedThreadId);

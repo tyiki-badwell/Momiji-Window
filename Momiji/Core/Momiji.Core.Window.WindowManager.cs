@@ -2,7 +2,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using Momiji.Internal.Debug;
 using Momiji.Internal.Log;
@@ -16,29 +15,26 @@ internal sealed class WindowManager : IDisposable
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private bool _disposed;
-    private WindowProcedure WindowProcedure { get; }
+    private WindowContext WindowContext { get; }
 
     internal bool IsEmpty => _windowMap.IsEmpty;
 
-    private readonly ConcurrentDictionary<User32.HWND, NativeWindow> _windowMap = [];
-    private readonly Stack<NativeWindow> _windowStack = [];
+    private readonly ConcurrentDictionary<User32.HWND, NativeWindowBase> _windowMap = [];
+    private readonly Stack<NativeWindowBase> _windowStack = [];
 
-    private readonly ConcurrentDictionary<int, WeakReference<NativeWindow>> _childIdMap = [];
+    private readonly ConcurrentDictionary<int, WeakReference<NativeWindowBase>> _childIdMap = [];
     private int childId = 0;
-
-    //TODO Windowに移動する
-    private readonly ConcurrentDictionary<User32.HWND, nint> _oldWndProcMap = [];
 
     internal WindowManager(
         ILoggerFactory loggerFactory,
-        WindowProcedure windowProcedure
+        WindowContext windowContext
     )
     {
         ArgumentNullException.ThrowIfNull(loggerFactory);
 
         _loggerFactory = loggerFactory;
-        _logger = _loggerFactory.CreateLogger<WindowContext>();
-        WindowProcedure = windowProcedure;
+        _logger = _loggerFactory.CreateLogger<WindowManager>();
+        WindowContext = windowContext;
     }
 
     ~WindowManager()
@@ -72,12 +68,12 @@ internal sealed class WindowManager : IDisposable
     internal readonly ref struct SwitchThreadDpiAwarenessContextPerMonitorAwareV2RAII
     {
         private readonly ILogger _logger;
-        private readonly NativeWindow _window;
+        private readonly NativeWindowBase _window;
 
         private readonly User32.DPI_AWARENESS_CONTEXT _oldContext;
 
         public SwitchThreadDpiAwarenessContextPerMonitorAwareV2RAII(
-            NativeWindow window,
+            NativeWindowBase window,
             ILogger logger
         )
         {
@@ -102,7 +98,7 @@ internal sealed class WindowManager : IDisposable
         }
     }
 
-    internal TResult InvokeWithContext<TResult>(Func<IWindow, TResult> item, NativeWindow window)
+    internal TResult InvokeWithContext<TResult>(Func<IWindow, TResult> item, NativeWindowBase window)
     {
         //TODO スレッドセーフになっているか要確認(再入しても問題ないなら気にしない)
         //TODO 何かのコンテキストに移す
@@ -181,6 +177,9 @@ internal sealed class WindowManager : IDisposable
                 _logger.LogWithHWnd(LogLevel.Trace, $"DestroyWindow OK", hwnd, Environment.CurrentManagedThreadId);
             }
         }
+
+        //TODO mapが空になるのを待つ？
+        _logger.LogWithLine(LogLevel.Warning, $"window left {_windowMap.Count}", Environment.CurrentManagedThreadId);
 
         _windowMap.Clear();
     }
@@ -329,8 +328,7 @@ internal sealed class WindowManager : IDisposable
                     }
                     else
                     {
-                        //TODO windowに、HWNDのアサインとWndProcの差し替えを設ける
-                        BindWndProc(hwnd, childHWnd);
+                        _windowMap.TryAdd(childHWnd, new SubClassNativeWindow(_loggerFactory, WindowContext, childHWnd));
                     }
 
                     break;
@@ -344,10 +342,14 @@ internal sealed class WindowManager : IDisposable
                     {
                         //既に管理対象のwindowだった
                         _logger.LogWithHWnd(LogLevel.Trace, $"is managed window childHWnd:[{childHWnd}][{childWindow.Handle:X}]", hwnd, Environment.CurrentManagedThreadId);
+                        if (childWindow is SubClassNativeWindow subclass)
+                        {
+                            subclass.Dispose();
+                        }
                     }
                     else
                     {
-                        UnbindWndProc(hwnd, childHWnd);
+                        //UnbindWndProc(hwnd, childHWnd);
                     }
                     break;
                 }
@@ -384,7 +386,7 @@ internal sealed class WindowManager : IDisposable
         }
     }
 
-    private void WndProcAfter(IUIThread.IMessage message, NativeWindow window)
+    private void WndProcAfter(IUIThread.IMessage message, NativeWindowBase window)
     {
         switch (message.Msg)
         {
@@ -400,13 +402,13 @@ internal sealed class WindowManager : IDisposable
         }
     }
 
-    private void OnWM_NCCREATE_After(NativeWindow window)
+    private void OnWM_NCCREATE_After(NativeWindowBase window)
     {
         //作成に成功してからWindowMapに入れる
         Add(window);
     }
 
-    private void OnWM_NCDESTROY_After(NativeWindow window)
+    private void OnWM_NCDESTROY_After(NativeWindowBase window)
     {
         Remove(window);
     }
@@ -415,29 +417,14 @@ internal sealed class WindowManager : IDisposable
     {
         var isWindowUnicode = (hwnd.Handle != User32.HWND.None.Handle) && User32.IsWindowUnicode(hwnd);
 
-        //TODO 子ウインドウでないときはこの処理が無駄
-        if (_oldWndProcMap.TryGetValue(hwnd, out var oldWndProc))
-        {
-            _logger.LogWithMsg(LogLevel.Trace, "CallWindowProc", hwnd, message, Environment.CurrentManagedThreadId);
-            var result = isWindowUnicode
-                ? User32.CallWindowProcW(oldWndProc, hwnd, (uint)message.Msg, message.WParam, message.LParam)
-                : User32.CallWindowProcA(oldWndProc, hwnd, (uint)message.Msg, message.WParam, message.LParam)
-                ;
-            var error = new Win32Exception();
-            _logger.LogWithMsgAndError(LogLevel.Trace, "CallWindowProc result", hwnd, message, error.ToString(), Environment.CurrentManagedThreadId);
-            return result;
-        }
-        else
-        {
-            _logger.LogWithMsg(LogLevel.Trace, "DefWindowProc", hwnd, message, Environment.CurrentManagedThreadId);
-            var result = isWindowUnicode
-                ? User32.DefWindowProcW(hwnd, (uint)message.Msg, message.WParam, message.LParam)
-                : User32.DefWindowProcA(hwnd, (uint)message.Msg, message.WParam, message.LParam)
-                ;
-            var error = new Win32Exception();
-            _logger.LogWithMsgAndError(LogLevel.Trace, "DefWindowProc result", hwnd, message, error.ToString(), Environment.CurrentManagedThreadId);
-            return result;
-        }
+        _logger.LogWithMsg(LogLevel.Trace, "DefWindowProc", hwnd, message, Environment.CurrentManagedThreadId);
+        var result = isWindowUnicode
+            ? User32.DefWindowProcW(hwnd, (uint)message.Msg, message.WParam, message.LParam)
+            : User32.DefWindowProcA(hwnd, (uint)message.Msg, message.WParam, message.LParam)
+            ;
+        var error = new Win32Exception();
+        _logger.LogWithMsgAndError(LogLevel.Trace, "DefWindowProc result", hwnd, message, error.ToString(), Environment.CurrentManagedThreadId);
+        return result;
     }
 
     [Conditional("DEBUG")]
@@ -461,7 +448,7 @@ internal sealed class WindowManager : IDisposable
         _logger.LogTrace("================================= PrintWindowMap end");
     }
 
-    private void Add(NativeWindow window)
+    private void Add(NativeWindowBase window)
     {
         if (_windowMap.TryAdd(window.HWindow, window))
         {
@@ -474,7 +461,7 @@ internal sealed class WindowManager : IDisposable
         }
     }
 
-    private void Remove(NativeWindow window)
+    private void Remove(NativeWindowBase window)
     {
         if (_windowMap.TryRemove(window.HWindow, out var window_))
         {
@@ -487,7 +474,7 @@ internal sealed class WindowManager : IDisposable
         }
     }
 
-    private bool FindWindow(User32.HWND hwnd, [MaybeNullWhen(false)] out NativeWindow window)
+    private bool FindWindow(User32.HWND hwnd, [MaybeNullWhen(false)] out NativeWindowBase window)
     {
         if (_windowMap.TryGetValue(hwnd, out window))
         {
@@ -497,7 +484,7 @@ internal sealed class WindowManager : IDisposable
         return false;
     }
 
-    private bool TryGetWindow(User32.HWND hwnd, [MaybeNullWhen(false)] out NativeWindow window)
+    private bool TryGetWindow(User32.HWND hwnd, [MaybeNullWhen(false)] out NativeWindowBase window)
     {
         PrintWindowStack();
         PrintWindowMap();
@@ -531,109 +518,5 @@ internal sealed class WindowManager : IDisposable
             _logger.LogWithHWnd(LogLevel.Trace, "stack is empty", hwnd, Environment.CurrentManagedThreadId);
             return false;
         }
-    }
-
-    //TODO Windowに移動する
-
-    private void BindWndProc(
-        User32.HWND hwnd,
-        User32.HWND childHWnd
-    )
-    {
-        const int GWLP_WNDPROC = -4;
-
-        if (_oldWndProcMap.TryAdd(childHWnd, nint.Zero))
-        {
-            var oldWndProc = ChildWindowSetWindowLong(childHWnd, GWLP_WNDPROC, WindowProcedure.FunctionPointer);
-
-            if (oldWndProc == WindowProcedure.FunctionPointer)
-            {
-                //変更前・変更後のWndProcが同じだった＝UIThread経由で作ったWindow　→　先にバイパスしたのにここに来たら異常事態
-                _logger.LogWithHWnd(LogLevel.Information, $"IGNORE childHWnd:[{childHWnd}]", hwnd, Environment.CurrentManagedThreadId);
-                _oldWndProcMap.TryRemove(childHWnd, out var _);
-            }
-            else
-            {
-                _logger.LogWithHWnd(LogLevel.Information, $"add to old wndproc map childHWnd:[{childHWnd}]", hwnd, Environment.CurrentManagedThreadId);
-                if (!_oldWndProcMap.TryUpdate(childHWnd, oldWndProc, nint.Zero))
-                {
-                    //更新できなかった
-                    _logger.LogWithHWnd(LogLevel.Error, $"failed add to old wndproc map childHWnd:[{childHWnd}]", hwnd, Environment.CurrentManagedThreadId);
-                }
-            }
-        }
-        else
-        {
-            //すでに登録されているのは異常事態
-            _logger.LogWithHWnd(LogLevel.Warning, $"found in old wndproc map childHWnd:[{childHWnd}]", hwnd, Environment.CurrentManagedThreadId);
-        }
-    }
-
-    private void UnbindWndProc(
-        User32.HWND hwnd,
-        User32.HWND childHWnd
-    )
-    {
-        const int GWLP_WNDPROC = -4;
-
-        if (_oldWndProcMap.TryRemove(childHWnd, out var oldWndProc))
-        {
-            _logger.LogWithHWnd(LogLevel.Information, $"remove old wndproc map childHWnd:[{childHWnd}]", hwnd, Environment.CurrentManagedThreadId);
-            var _ = ChildWindowSetWindowLong(childHWnd, GWLP_WNDPROC, oldWndProc);
-
-            //WM_NCDESTROYが発生する前にWndProcを元に戻したので、ここで呼び出しする
-            //TODO 親ウインドウのWM_PARENTNOTIFYが発生するより先に子ウインドウのWM_NCDESTROYが発生した場合は、ココを通らない
-            UnbindWindow(childHWnd);
-        }
-        else
-        {
-            _logger.LogWithHWnd(LogLevel.Warning, $"not found in old wndproc map childHWnd:[{childHWnd}]", hwnd, Environment.CurrentManagedThreadId);
-        }
-    }
-
-    private bool UnbindWindow(User32.HWND hwnd)
-    {
-        if (_windowMap.TryRemove(hwnd, out var window))
-        {
-            _logger.LogWithHWnd(LogLevel.Information, "remove window map", hwnd, Environment.CurrentManagedThreadId);
-            window.HWindow = User32.HWND.None;
-            return true;
-        }
-        else
-        {
-            _logger.LogWithHWnd(LogLevel.Warning, "failed. remove window map", hwnd, Environment.CurrentManagedThreadId);
-            return false;
-        }
-    }
-
-    private nint ChildWindowSetWindowLong(
-        User32.HWND childHWnd,
-        int nIndex,
-        nint dwNewLong
-    )
-    {
-        Marshal.SetLastPInvokeError(0);
-        _logger.LogWithHWnd(LogLevel.Information, $"child SetWindowLong nIndex:[{nIndex:X}] dwNewLong:[{dwNewLong:X}]", childHWnd, Environment.CurrentManagedThreadId);
-
-        var isChildWindowUnicode = (childHWnd.Handle != User32.HWND.None.Handle) && User32.IsWindowUnicode(childHWnd);
-
-        //SetWindowLong～のエラー判定のために、エラーコードをリセットする
-        Marshal.SetLastPInvokeError(0);
-        var result = isChildWindowUnicode
-                        ? Environment.Is64BitProcess
-                            ? User32.SetWindowLongPtrW(childHWnd, nIndex, dwNewLong)
-                            : User32.SetWindowLongW(childHWnd, nIndex, dwNewLong)
-                        : Environment.Is64BitProcess
-                            ? User32.SetWindowLongPtrA(childHWnd, nIndex, dwNewLong)
-                            : User32.SetWindowLongA(childHWnd, nIndex, dwNewLong)
-                        ;
-        var error = new Win32Exception();
-        _logger.LogWithHWndAndError(LogLevel.Information, $"SetWindowLong result:[{result:X}]", childHWnd, error.ToString(), Environment.CurrentManagedThreadId);
-        if (result == 0 && error.NativeErrorCode != 0)
-        {
-            throw error;
-        }
-
-        return result;
     }
 }

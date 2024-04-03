@@ -39,7 +39,7 @@ internal sealed class WindowContext : IDisposable
 
         WindowProcedure = new(_loggerFactory, UIThreadChecker, OnMessage, OnThreadMessage);
         WindowClassManager = new(_loggerFactory, WindowProcedure);
-        WindowManager = new(_loggerFactory, WindowProcedure);
+        WindowManager = new(_loggerFactory, this);
     }
 
     ~WindowContext()
@@ -207,7 +207,7 @@ internal sealed class WindowContext : IDisposable
         return await tcs.Task;
     }
 
-    internal async ValueTask<TResult> DispatchAsync<TResult>(Func<IWindow, TResult> item, NativeWindow window)
+    internal async ValueTask<TResult> DispatchAsync<TResult>(Func<IWindow, TResult> item, NativeWindowBase window)
     {
         _logger.LogWithLine(LogLevel.Trace, "DispatchAsync", Environment.CurrentManagedThreadId);
 

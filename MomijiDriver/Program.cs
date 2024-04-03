@@ -13,8 +13,8 @@ public class Program
         var host = Worker.CreateHost(args);
         var task = host.RunAsync();
 
-        var logger = (ILogger<Program>?)host.Services.GetService(typeof(ILogger<Program>));
-        var factory = (IUIThreadFactory?)host.Services.GetService(typeof(IUIThreadFactory));
+        var logger = host.Services.GetService<ILogger<Program>>();
+        var factory = host.Services.GetService<IUIThreadFactory>();
 
         await using var a = await factory!.StartAsync();
         await using var b = await factory!.StartAsync();
