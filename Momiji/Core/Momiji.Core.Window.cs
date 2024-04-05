@@ -54,7 +54,7 @@ public interface IUIThread : IDisposable, IAsyncDisposable
     );
 }
 
-public interface IWindow
+public interface IWindow: IDisposable
 {
     nint Handle
     {

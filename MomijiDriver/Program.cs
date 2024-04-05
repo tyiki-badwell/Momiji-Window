@@ -1,7 +1,4 @@
 ﻿using System.Windows.Interop;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Momiji.Core.Window;
 
 namespace Momiji.Driver;
@@ -11,15 +8,64 @@ public class Program
     public static async Task Main(string[] args)
     {
         var host = Worker.CreateHost(args);
-        var task = host.RunAsync();
+        await host.RunAsync();
+    }
+}
 
-        var logger = host.Services.GetService<ILogger<Program>>();
-        var factory = host.Services.GetService<IUIThreadFactory>();
+public class Worker : BackgroundService
+{
+    public static IHost CreateHost(string[] args)
+    {
+        var builder = Host.CreateDefaultBuilder(args);
 
-        await using var a = await factory!.StartAsync();
-        await using var b = await factory!.StartAsync();
+        builder.UseContentRoot(AppContext.BaseDirectory);
+        builder.UseConsoleLifetime();
 
-        var windowA = a.CreateWindow("windowA", onMessage:async (sender, message) => {
+        builder.ConfigureServices((hostContext, services) =>
+        {
+            services.AddSingleton<IUIThreadFactory, UIThreadFactory>();
+            services.AddHostedService<Worker>();
+        });
+
+        var host = builder.Build();
+
+        return host;
+    }
+
+    private readonly ILogger _logger;
+    private readonly IUIThreadFactory _uiThreadFactory;
+
+    public Worker(
+        ILogger<Worker> logger,
+        IUIThreadFactory uiThreadFactory,
+        IHostApplicationLifetime hostApplicationLifetime
+    )
+    {
+        _logger = logger;
+        _uiThreadFactory = uiThreadFactory;
+
+        hostApplicationLifetime.ApplicationStarted.Register(() =>
+        {
+            _logger.LogInformation("ApplicationStarted");
+        });
+        hostApplicationLifetime.ApplicationStopping.Register(() =>
+        {
+            _logger.LogInformation("ApplicationStopping");
+        });
+        hostApplicationLifetime.ApplicationStopped.Register(() =>
+        {
+            _logger.LogInformation("ApplicationStopped");
+        });
+    }
+
+    protected async override Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        _logger.LogInformation("ExecuteAsync");
+
+        await using var a = await _uiThreadFactory.StartAsync();
+        await using var b = await _uiThreadFactory.StartAsync();
+
+        var windowA = a.CreateWindow("windowA", onMessage: async (sender, message) => {
             //logger?.LogInformation($"   windowA:{message}");
             switch (message.Msg)
             {
@@ -32,9 +78,9 @@ public class Program
                     //message.WParam 上位ワード　0：メニュー／1：アクセラレータ／その他：ボタン識別子　下位ワード　識別子
                     //message.LParam ウインドウハンドル
 
-                    logger?.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] delay start ===============================");
+                    _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] delay start ===============================");
                     await Task.Delay(1000);
-                    logger?.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] delay end ===============================");
+                    _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] delay end ===============================");
 
                     break;
 
@@ -43,7 +89,7 @@ public class Program
         var windowB = b.CreateWindow("windowB");
 
         var buttonA = a.CreateWindow("buttonA", windowA, "BUTTON", (sender, message) => {
-            logger?.LogInformation($"       buttonA:{message}");
+            _logger.LogInformation($"       buttonA:{message}");
             switch (message.Msg)
             {
                 case 0x0084: //WM_NCHITTEST
@@ -84,23 +130,23 @@ public class Program
                     break;
 
             }
-        
+
         });
         var textA = a.CreateWindow("textA", windowA, "EDIT", (sender, message) => {
-            logger?.LogInformation($"       textA:{message}");
+            _logger.LogInformation($"       textA:{message}");
         });
 
         var buttonB = b.CreateWindow("buttonB", windowB, "BUTTON", (sender, message) => {
-            logger?.LogInformation($"       buttonB:{message}");
+            _logger.LogInformation($"       buttonB:{message}");
         });
         var textB = b.CreateWindow("textB", windowB, "EDIT", (sender, message) => {
-            logger?.LogInformation($"       textB:{message}");
+            _logger.LogInformation($"       textB:{message}");
         });
 
         //BスレッドからAにボタン追加
         //TODO handleを保存できてない
         var buttonC = b.CreateWindow("buttonC", windowA, "BUTTON", (sender, message) => {
-            logger?.LogInformation($"       buttonC:{message}");
+            _logger.LogInformation($"       buttonC:{message}");
         });
 
         //WPFコンテンツを挿入する
@@ -134,56 +180,6 @@ public class Program
         await textB.MoveAsync(10, 300, 200, 80, true);
         await windowB.ShowAsync(1);
 
-        await task;
-    }
-}
-
-public class Worker : BackgroundService
-{
-    public static IHost CreateHost(string[] args)
-    {
-        var builder = Host.CreateDefaultBuilder(args);
-
-        builder.UseContentRoot(AppContext.BaseDirectory);
-        builder.UseConsoleLifetime();
-
-        builder.ConfigureServices((hostContext, services) =>
-        {
-            services.AddSingleton<IUIThreadFactory, UIThreadFactory>();
-            services.AddHostedService<Worker>();
-        });
-
-        var host = builder.Build();
-
-        return host;
-    }
-
-    private readonly ILogger _logger;
-
-    public Worker(
-        ILogger<Worker> logger,
-        IHostApplicationLifetime hostApplicationLifetime
-    )
-    {
-        _logger = logger;
-
-        hostApplicationLifetime.ApplicationStarted.Register(() =>
-        {
-            _logger.LogInformation("ApplicationStarted");
-        });
-        hostApplicationLifetime.ApplicationStopping.Register(() =>
-        {
-            _logger.LogInformation("ApplicationStopping");
-        });
-        hostApplicationLifetime.ApplicationStopped.Register(() =>
-        {
-            _logger.LogInformation("ApplicationStopped");
-        });
-    }
-
-    protected async override Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        _logger.LogInformation("ExecuteAsync");
         while (!stoppingToken.IsCancellationRequested)
         {
             await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);

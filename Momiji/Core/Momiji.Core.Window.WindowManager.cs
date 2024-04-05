@@ -161,21 +161,12 @@ internal sealed class WindowManager : IDisposable
         }
 
         _logger.LogWithLine(LogLevel.Warning, $"window left {_windowMap.Count}", Environment.CurrentManagedThreadId);
+        PrintWindowMap();
+
         foreach (var item in _windowMap)
         {
-            var hwnd = item.Key;
-            _logger.LogWithHWnd(LogLevel.Warning, $"DestroyWindow", hwnd, Environment.CurrentManagedThreadId);
-
-            //TODO WM_NCDESTROYが発生してMapから削除されるので、foreachじゃダメかも？
-            if (!User32.DestroyWindow(hwnd))
-            {
-                var error = new Win32Exception();
-                _logger.LogWithHWndAndError(LogLevel.Error, "DestroyWindow failed", hwnd, error.ToString(), Environment.CurrentManagedThreadId);
-            }
-            else
-            {
-                _logger.LogWithHWnd(LogLevel.Trace, $"DestroyWindow OK", hwnd, Environment.CurrentManagedThreadId);
-            }
+            //TODO UIThreadで実行しないとエラーになってる
+            item.Value.Dispose();
         }
 
         //TODO mapが空になるのを待つ？
@@ -328,7 +319,7 @@ internal sealed class WindowManager : IDisposable
                     }
                     else
                     {
-                        _windowMap.TryAdd(childHWnd, new SubClassNativeWindow(_loggerFactory, WindowContext, childHWnd));
+                        Add(new SubClassNativeWindow(_loggerFactory, WindowContext, childHWnd));
                     }
 
                     break;
@@ -345,6 +336,7 @@ internal sealed class WindowManager : IDisposable
                         if (childWindow is SubClassNativeWindow subclass)
                         {
                             subclass.Dispose();
+                            Remove(subclass);
                         }
                     }
                     else
@@ -431,7 +423,7 @@ internal sealed class WindowManager : IDisposable
     private void PrintWindowStack()
     {
         _logger.LogTrace("================================= PrintWindowStack start");
-        _logger.LogWithLine(LogLevel.Trace, $"window stack {string.Join("<-", _windowStack.Select((window, idx) => $"[hash:{window.GetHashCode():X}][handle:{window.HWindow:X}]"))}", Environment.CurrentManagedThreadId);
+        _logger.LogWithLine(LogLevel.Trace, $"window stack {string.Join("<-", _windowStack.Select((window, idx) => $"[hash:{window.GetHashCode():X}][window:{window}]"))}", Environment.CurrentManagedThreadId);
         _logger.LogTrace("================================= PrintWindowStack end");
     }
 
@@ -442,7 +434,7 @@ internal sealed class WindowManager : IDisposable
 
         foreach (var item in _windowMap)
         {
-            _logger.LogWithHWnd(LogLevel.Trace, $"window map [hash:{item.Value.GetHashCode():X}]", item.Key, Environment.CurrentManagedThreadId);
+            _logger.LogWithHWnd(LogLevel.Trace, $"window map [window:{item.Value}]", item.Key, Environment.CurrentManagedThreadId);
         }
 
         _logger.LogTrace("================================= PrintWindowMap end");

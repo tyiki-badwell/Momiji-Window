@@ -30,6 +30,19 @@ internal abstract class NativeWindowBase : IWindow
         WindowContext = windowContext;
     }
 
+    ~NativeWindowBase()
+    {
+        Dispose(false);
+    }
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected abstract void Dispose(bool disposing);
+
     public override string ToString()
     {
         return $"NativeWindow[HWND:{HWindow}]";
@@ -118,10 +131,13 @@ internal abstract class NativeWindowBase : IWindow
 
 internal sealed class NativeWindow : NativeWindowBase
 {
+    private bool _disposed;
     private readonly IUIThread.OnMessage? _onMessage;
     private readonly IUIThread.OnMessage? _onMessageAfter;
 
     private WindowClass WindowClass { get; }
+
+    private readonly string _windowTitle;
 
     internal NativeWindow(
         ILoggerFactory loggerFactory,
@@ -137,10 +153,42 @@ internal sealed class NativeWindow : NativeWindowBase
         //TODO UIAutomation
         WindowClass = WindowContext.WindowClassManager.QueryWindowClass(className, classStyle);
 
+        _windowTitle = windowTitle;
+
         _onMessage = onMessage;
         _onMessageAfter = onMessageAfter;
 
         CreateWindow(windowTitle, parent);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (disposing)
+        {
+            Logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
+        }
+
+        if (!User32.DestroyWindow(HWindow))
+        {
+            var error = new Win32Exception();
+            Logger.LogWithHWndAndError(LogLevel.Error, "DestroyWindow failed", HWindow, error.ToString(), Environment.CurrentManagedThreadId);
+        }
+        else
+        {
+            Logger.LogWithHWnd(LogLevel.Trace, $"DestroyWindow OK", HWindow, Environment.CurrentManagedThreadId);
+        }
+
+        _disposed = true;
+    }
+
+    public override string ToString()
+    {
+        return $"NativeWindow[HWND:{HWindow}][title:{_windowTitle}]";
     }
 
     private void CreateWindow(
@@ -233,7 +281,7 @@ internal sealed class NativeWindow : NativeWindowBase
     }
 }
 
-internal sealed class SubClassNativeWindow : NativeWindowBase, IDisposable
+internal sealed class SubClassNativeWindow : NativeWindowBase
 {
     private bool _disposed;
     private readonly nint _oldWinProc = default;
@@ -263,18 +311,7 @@ internal sealed class SubClassNativeWindow : NativeWindowBase, IDisposable
         _oldWinProc = result;
     }
 
-    ~SubClassNativeWindow()
-    {
-        Dispose(false);
-    }
-
-    public void Dispose()
-    {
-        Dispose(true);
-        GC.SuppressFinalize(this);
-    }
-
-    private void Dispose(bool disposing)
+    protected override void Dispose(bool disposing)
     {
         if (_disposed)
         {
@@ -284,14 +321,20 @@ internal sealed class SubClassNativeWindow : NativeWindowBase, IDisposable
         if (disposing)
         {
             Logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
-            var (result, error) = SetWindowLong(HWindow, -4, _oldWinProc);
-            if (result == nint.Zero && error.NativeErrorCode != 0)
-            {
-                Logger.LogWithHWnd(LogLevel.Error, error, "SetWindowLong failed", HWindow, Environment.CurrentManagedThreadId);
-            }
+        }
+
+        var (result, error) = SetWindowLong(HWindow, -4, _oldWinProc);
+        if (result == nint.Zero && error.NativeErrorCode != 0)
+        {
+            Logger.LogWithHWnd(LogLevel.Error, error, "SetWindowLong failed", HWindow, Environment.CurrentManagedThreadId);
         }
 
         _disposed = true;
+    }
+
+    public override string ToString()
+    {
+        return $"SubClassNativeWindow[HWND:{HWindow}]";
     }
 
     internal override void WndProc(IUIThread.IMessage message)
