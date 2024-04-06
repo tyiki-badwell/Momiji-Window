@@ -11,7 +11,43 @@ using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
-internal sealed class WindowProcedure : IDisposable
+internal interface IWindowProcedure
+{
+    nint FunctionPointer { get; }
+
+    void PostMessage(
+        User32.HWND hwnd,
+        uint nMsg,
+        nint wParam,
+        nint lParam
+    );
+
+    nint SendMessage(
+        User32.HWND hwnd,
+        uint nMsg,
+        nint wParam,
+        nint lParam
+    );
+
+    User32.HWND CreateWindow(
+        uint dwExStyle,
+        nint lpszClassName,
+        string windowTitle,
+        uint style,
+        int x,
+        int y,
+        int width,
+        int height,
+        User32.HWND hwndParent,
+        nint hMenu,
+        nint hInst
+    );
+
+    void DispatchMessage();
+}
+
+
+internal sealed class WindowProcedure : IWindowProcedure, IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -20,7 +56,7 @@ internal sealed class WindowProcedure : IDisposable
     private IUIThreadChecker UIThreadChecker { get; }
 
     private readonly PinnedDelegate<User32.WNDPROC> _wndProc;
-    internal nint FunctionPointer => _wndProc.FunctionPointer;
+    public nint FunctionPointer => _wndProc.FunctionPointer;
 
     internal delegate void OnMessage(User32.HWND hwnd, IUIThread.IMessage message);
     private readonly OnMessage _onMessage;
@@ -42,7 +78,7 @@ internal sealed class WindowProcedure : IDisposable
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<WindowProcedure>();
         UIThreadChecker = uiThreadChecker;
-
+        UIThreadChecker.OnInactivated += OnInactivated;
 
         _onMessage = onMessage;
         _onThreadMessage = onThreadMessage;
@@ -72,11 +108,17 @@ internal sealed class WindowProcedure : IDisposable
         if (disposing)
         {
             _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
-
+            UIThreadChecker.OnInactivated -= OnInactivated;
             _wndProc.Dispose();
         }
 
         _disposed = true;
+    }
+
+    private void OnInactivated()
+    {
+        _logger.LogWithLine(LogLevel.Trace, "OnInactivated", Environment.CurrentManagedThreadId);
+        //TODO メッセージキューを吐き出しきる
     }
 
     private void Setup()
@@ -114,7 +156,7 @@ internal sealed class WindowProcedure : IDisposable
         }
     }
 
-    internal nint SendMessage(
+    public nint SendMessage(
         User32.HWND hwnd,
         uint nMsg,
         nint wParam,
@@ -152,7 +194,7 @@ internal sealed class WindowProcedure : IDisposable
         return result;
     }
 
-    internal void PostMessage(
+    public void PostMessage(
         User32.HWND hwnd,
         uint nMsg,
         nint wParam,
@@ -225,7 +267,7 @@ internal sealed class WindowProcedure : IDisposable
         }
     }
 
-    internal User32.HWND CreateWindow(
+    public User32.HWND CreateWindow(
         uint dwExStyle,
         nint lpszClassName,
         string windowTitle,
@@ -276,7 +318,7 @@ internal sealed class WindowProcedure : IDisposable
         return hWindow;
     }
 
-    internal void DispatchMessage()
+    public void DispatchMessage()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 

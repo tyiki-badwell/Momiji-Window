@@ -25,7 +25,7 @@ internal sealed class WindowClass : IDisposable
 
     internal WindowClass(
         ILoggerFactory loggerFactory,
-        WindowProcedure windowProcedure,
+        IWindowProcedure windowProcedure,
         User32.WNDCLASSEX.CS classStyle,
         string className
     )

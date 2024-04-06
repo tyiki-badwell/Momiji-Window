@@ -217,7 +217,8 @@ public class WindowUnitTest : IDisposable
 
         var canClose = false;
 
-        var window = thread.CreateWindow("window", onMessage:(sender, message) => {
+        var window = thread.CreateWindow("window", onMessage: (sender, message) =>
+        {
             switch (message.Msg)
             {
                 case 0x0010://WM_CLOSE
@@ -248,12 +249,14 @@ public class WindowUnitTest : IDisposable
         await using var factory = new UIThreadFactory(CreateConfiguration(), _loggerFactory);
         await using var thread = await factory.StartAsync();
 
-        var window = thread.CreateWindow("window", onMessage:(sender, message) => {
+        var window = thread.CreateWindow("window", onMessage:(sender, message) => 
+        {
             _logger.LogInformation($"on message {message}");
 
             if (message.Msg == 0x0001) //WM_CREATE
             {
-                var child = thread.CreateWindow("child", sender, "EDIT", (sender, message) => {
+                var child = thread.CreateWindow("child", sender, "EDIT", (sender, message) => 
+                {
                     _logger.LogInformation($"child on message {message}");
                 });
             }
@@ -439,7 +442,8 @@ public class WindowUnitTest : IDisposable
                 return result;
             };
 
-            var window = thread.CreateWindow("window", onMessage:async (sender, message) => {
+            var window = thread.CreateWindow("window", onMessage: async (sender, message) =>
+            {
                 if (message.Msg == 0)
                 {
                     if (message.LParam == 999)
@@ -703,7 +707,7 @@ public class WindowUnitTest : IDisposable
         await using var factory = new UIThreadFactory(CreateConfiguration(), _loggerFactory);
         await using var thread = await factory.StartAsync();
 
-        var window = thread.CreateWindow("window");
+         var window = thread.CreateWindow("window");
 
         {
             _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] Dispatch 4 put ===============================");
@@ -731,7 +735,8 @@ public class WindowUnitTest : IDisposable
 
         using var cde = new CountdownEvent(1);
 
-        var window = thread.CreateWindow("window", onMessage:async (sender, message) => {
+        var window = thread.CreateWindow("window", onMessage:async (sender, message) =>
+        {
             if (message.Msg == 0)
             {
                 _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] message [{message}] ===============================");
@@ -790,7 +795,8 @@ public class WindowUnitTest : IDisposable
         await using var factory = new UIThreadFactory(CreateConfiguration(), _loggerFactory);
         await using var thread = await factory.StartAsync();
 
-        var window = thread.CreateWindow("window", onMessage:async (sender, message) => {
+        var window = thread.CreateWindow("window", onMessage:async (sender, message) => 
+        {
             if (message.Msg == 0)
             {
                 _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] message [{message}] ===============================[{SynchronizationContext.Current}]");
@@ -842,19 +848,23 @@ public class WindowUnitTest : IDisposable
         await using var threadA = await factory.StartAsync();
         await using var threadB = await factory.StartAsync();
 
-        var windowA = threadA.CreateWindow("windowA", onMessage:(sender, message) => {
+        var windowA = threadA.CreateWindow("windowA", onMessage:(sender, message) =>
+        {
             _logger.LogInformation($"PARENT on message {message}");
         });
 
-        var buttonA = threadA.CreateWindow("buttonA", windowA, "BUTTON", (sender, message) => {
+        var buttonA = threadA.CreateWindow("buttonA", windowA, "BUTTON", (sender, message) =>
+        {
             _logger.LogInformation($"CHILD A on message {message}");
         });
 
-        var windowAA = threadA.CreateWindow("windowAA", windowA, onMessage:(sender, message) => {
+        var windowAA = threadA.CreateWindow("windowAA", windowA, onMessage:(sender, message) =>
+        {
             _logger.LogInformation($"CHILD W on message {message}");
         });
 
-        var buttonB = threadB.CreateWindow("buttonB", windowA, "BUTTON", (sender, message) => {
+        var buttonB = threadB.CreateWindow("buttonB", windowA, "BUTTON", (sender, message) => 
+        {
             _logger.LogInformation($"CHILD B on message {message}");
         });
 

@@ -31,6 +31,7 @@ internal sealed class DispatcherQueue : IDisposable
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<DispatcherQueue>();
         UIThreadChecker = uiThreadChecker;
+        UIThreadChecker.OnInactivated += OnInactivated;
 
         DispatcherQueueSynchronizationContext = new(_loggerFactory, this);
         _onUnhandledException = onUnhandledException;
@@ -57,6 +58,7 @@ internal sealed class DispatcherQueue : IDisposable
         if (disposing)
         {
             _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
+            UIThreadChecker.OnInactivated -= OnInactivated;
 
             //TODO 終了する前にQueueにタスクがある場合の掃除
             if (!_queue.IsEmpty)
@@ -68,6 +70,41 @@ internal sealed class DispatcherQueue : IDisposable
         }
 
         _disposed = true;
+    }
+
+    private void OnInactivated()
+    {
+        _logger.LogWithLine(LogLevel.Trace, "OnInactivated", Environment.CurrentManagedThreadId);
+        DispatchQueue();
+    }
+
+    internal async ValueTask<TResult> DispatchAsync<TResult>(Func<TResult> func)
+    {
+        _logger.LogWithLine(LogLevel.Trace, "DispatchAsync", Environment.CurrentManagedThreadId);
+
+        if (UIThreadChecker.IsActivatedThread)
+        {
+            _logger.LogWithLine(LogLevel.Trace, "Dispatch called from same thread id then immidiate mode", Environment.CurrentManagedThreadId);
+            return func();
+        }
+
+        var tcs = new TaskCompletionSource<TResult>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+
+        Dispatch(() =>
+        {
+            _logger.LogWithLine(LogLevel.Trace, "Dispatch called from other thread id then async mode", Environment.CurrentManagedThreadId);
+            try
+            {
+                //TODO キャンセルできるようにする？
+                tcs.SetResult(func());
+            }
+            catch (Exception e)
+            {
+                tcs.SetException(e);
+            }
+        });
+
+        return await tcs.Task;
     }
 
     internal void Dispatch(Action action)
@@ -131,6 +168,7 @@ internal sealed class DispatcherQueue : IDisposable
                 if (!(handled.HasValue && handled.Value))
                 {
                     //ループを終了させる
+                    //TODO 全部やりきらせないとダメかも？
                     _logger.LogWithLine(LogLevel.Trace, "loop end", Environment.CurrentManagedThreadId);
                     throw;
                 }

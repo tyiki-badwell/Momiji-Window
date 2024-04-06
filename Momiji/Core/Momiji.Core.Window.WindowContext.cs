@@ -2,7 +2,6 @@
 using Microsoft.Extensions.Logging;
 using Momiji.Core.Buffer;
 using Momiji.Internal.Log;
-using Momiji.Internal.Util;
 using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
@@ -17,9 +16,6 @@ internal sealed class WindowContext : IDisposable
 
     private IUIThreadChecker UIThreadChecker { get; }
     private DispatcherQueue DispatcherQueue { get; }
-    private WindowContextSynchronizationContext WindowContextSynchronizationContext { get; }
-    internal WindowClassManager WindowClassManager { get; }
-    internal WindowProcedure WindowProcedure { get; }
     internal WindowManager WindowManager { get; }
 
     internal WindowContext(
@@ -34,12 +30,9 @@ internal sealed class WindowContext : IDisposable
         _logger = _loggerFactory.CreateLogger<WindowContext>();
 
         UIThreadChecker = uiThreadChecker;
-        DispatcherQueue = new(_loggerFactory, UIThreadChecker, onUnhandledException);
-        WindowContextSynchronizationContext = new(_loggerFactory, DispatcherQueue);
 
-        WindowProcedure = new(_loggerFactory, UIThreadChecker, OnMessage, OnThreadMessage);
-        WindowClassManager = new(_loggerFactory, WindowProcedure);
-        WindowManager = new(_loggerFactory, this);
+        DispatcherQueue = new(_loggerFactory, UIThreadChecker, onUnhandledException);
+        WindowManager = new(_loggerFactory, UIThreadChecker, DispatcherQueue);
     }
 
     ~WindowContext()
@@ -68,8 +61,6 @@ internal sealed class WindowContext : IDisposable
             //TODO ループの終了は待たずに急に終わってよいか？
 
             WindowManager.Dispose();
-            WindowClassManager.Dispose();
-            WindowProcedure.Dispose();
 
             _cts.Dispose();
         }
@@ -148,7 +139,7 @@ internal sealed class WindowContext : IDisposable
                 {
                     //ウインドウメッセージキューのディスパッチ
                     _logger.LogWithLine(LogLevel.Trace, "MsgWaitForMultipleObjectsEx comes window message.", Environment.CurrentManagedThreadId);
-                    WindowProcedure.DispatchMessage();
+                    WindowManager.WindowProcedure.DispatchMessage();
                     continue;
                 }
                 else if (res == 0) // WAIT_OBJECT_0
@@ -179,110 +170,7 @@ internal sealed class WindowContext : IDisposable
 
     internal async ValueTask<TResult> DispatchAsync<TResult>(Func<TResult> func)
     {
-        _logger.LogWithLine(LogLevel.Trace, "DispatchAsync", Environment.CurrentManagedThreadId);
-
-        //TODO 即時実行か遅延実行かの判断はDispatcherQueueに移した方がよいか？
-        if (UIThreadChecker.IsActivatedThread)
-        {
-            _logger.LogWithLine(LogLevel.Trace, "Dispatch called from same thread id then immidiate mode", Environment.CurrentManagedThreadId);
-            return func();
-        }
-
-        var tcs = new TaskCompletionSource<TResult>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
-
-        DispatcherQueue.Dispatch(() =>
-        {
-            _logger.LogWithLine(LogLevel.Trace, "Dispatch called from other thread id then async mode", Environment.CurrentManagedThreadId);
-            try
-            {
-                //TODO キャンセルできるようにする？
-                tcs.SetResult(func());
-            }
-            catch (Exception e)
-            {
-                tcs.SetException(e);
-            }
-        });
-
-        return await tcs.Task;
+        return await DispatcherQueue.DispatchAsync(func);
     }
 
-    internal async ValueTask<TResult> DispatchAsync<TResult>(Func<IWindow, TResult> item, NativeWindowBase window)
-    {
-        _logger.LogWithLine(LogLevel.Trace, "DispatchAsync", Environment.CurrentManagedThreadId);
-
-        TResult func()
-        {
-            return WindowManager.InvokeWithContext(item, window);
-        }
-
-        return await DispatchAsync(func);
-    }
-
-    private void OnMessage(User32.HWND hwnd, IUIThread.IMessage message)
-    {
-        _logger.LogWithMsg(LogLevel.Trace, "OnMessage", hwnd, message, Environment.CurrentManagedThreadId);
-
-        using var switchContext = new SwitchSynchronizationContextRAII(WindowContextSynchronizationContext, _logger);
-
-        //ウインドウに流す
-        WindowManager.OnMessage(hwnd, message);
-    }
-
-    private void OnThreadMessage(IUIThread.IMessage message)
-    {
-        _logger.LogWithMsg(LogLevel.Trace, "OnThreadMessage", User32.HWND.None, message, Environment.CurrentManagedThreadId);
-
-        using var switchContext = new SwitchSynchronizationContextRAII(WindowContextSynchronizationContext, _logger);
-
-        //TODO スレッドメッセージ用の処理
-
-    }
-}
-
-//TODO 実験中
-internal sealed class WindowContextSynchronizationContext : SynchronizationContext
-{
-    private readonly ILoggerFactory _loggerFactory;
-    private readonly ILogger _logger;
-
-    private readonly DispatcherQueue _dispatcherQueue;
-
-    internal WindowContextSynchronizationContext(
-        ILoggerFactory loggerFactory,
-        DispatcherQueue dispatcherQueue
-    )
-    {
-        _loggerFactory = loggerFactory;
-        _logger = _loggerFactory.CreateLogger<WindowContextSynchronizationContext>();
-        _dispatcherQueue = dispatcherQueue;
-    }
-
-    public override void Send(SendOrPostCallback d, object? state)
-    {
-        _logger.LogWithLine(LogLevel.Trace, "Send", Environment.CurrentManagedThreadId);
-        throw new NotSupportedException("Send");
-    }
-
-    public override void Post(SendOrPostCallback d, object? state)
-    {
-        _logger.LogWithLine(LogLevel.Trace, "Post", Environment.CurrentManagedThreadId);
-        _dispatcherQueue.Dispatch(d, state);
-    }
-
-    public override SynchronizationContext CreateCopy()
-    {
-        _logger.LogWithLine(LogLevel.Trace, "CreateCopy", Environment.CurrentManagedThreadId);
-        return this;
-    }
-
-    public override void OperationStarted()
-    {
-        _logger.LogWithLine(LogLevel.Trace, "OperationStarted", Environment.CurrentManagedThreadId);
-    }
-
-    public override void OperationCompleted()
-    {
-        _logger.LogWithLine(LogLevel.Trace, "OperationCompleted", Environment.CurrentManagedThreadId);
-    }
 }

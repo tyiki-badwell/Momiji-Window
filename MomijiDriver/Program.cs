@@ -21,9 +21,10 @@ public class Worker : BackgroundService
         builder.UseContentRoot(AppContext.BaseDirectory);
         builder.UseConsoleLifetime();
 
+        builder.UseMomijiWindow();
+
         builder.ConfigureServices((hostContext, services) =>
         {
-            services.AddSingleton<IUIThreadFactory, UIThreadFactory>();
             services.AddHostedService<Worker>();
         });
 
@@ -33,16 +34,16 @@ public class Worker : BackgroundService
     }
 
     private readonly ILogger _logger;
-    private readonly IUIThreadFactory _uiThreadFactory;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
 
     public Worker(
         ILogger<Worker> logger,
-        IUIThreadFactory uiThreadFactory,
-        IHostApplicationLifetime hostApplicationLifetime
+        IHostApplicationLifetime hostApplicationLifetime,
+        IServiceScopeFactory serviceScopeFactory
     )
     {
         _logger = logger;
-        _uiThreadFactory = uiThreadFactory;
+        _serviceScopeFactory = serviceScopeFactory;
 
         hostApplicationLifetime.ApplicationStarted.Register(() =>
         {
@@ -62,10 +63,13 @@ public class Worker : BackgroundService
     {
         _logger.LogInformation("ExecuteAsync");
 
-        await using var a = await _uiThreadFactory.StartAsync();
-        await using var b = await _uiThreadFactory.StartAsync();
+        using var scope = _serviceScopeFactory.CreateScope();
 
-        var windowA = a.CreateWindow("windowA", onMessage: async (sender, message) => {
+        var a = scope.ServiceProvider.GetRequiredService<IUIThread>();
+        var b = scope.ServiceProvider.GetRequiredService<IUIThread>();
+
+        var windowA = a.CreateWindow("windowA", onMessage: async (sender, message) => 
+        {
             //logger?.LogInformation($"   windowA:{message}");
             switch (message.Msg)
             {
@@ -88,7 +92,8 @@ public class Worker : BackgroundService
         });
         var windowB = b.CreateWindow("windowB");
 
-        var buttonA = a.CreateWindow("buttonA", windowA, "BUTTON", (sender, message) => {
+        var buttonA = a.CreateWindow("buttonA", windowA, "BUTTON", (sender, message) => 
+        {
             _logger.LogInformation($"       buttonA:{message}");
             switch (message.Msg)
             {
@@ -132,26 +137,31 @@ public class Worker : BackgroundService
             }
 
         });
-        var textA = a.CreateWindow("textA", windowA, "EDIT", (sender, message) => {
+        var textA = a.CreateWindow("textA", windowA, "EDIT", (sender, message) => 
+        {
             _logger.LogInformation($"       textA:{message}");
         });
 
-        var buttonB = b.CreateWindow("buttonB", windowB, "BUTTON", (sender, message) => {
+        var buttonB = b.CreateWindow("buttonB", windowB, "BUTTON", (sender, message) =>
+        {
             _logger.LogInformation($"       buttonB:{message}");
         });
-        var textB = b.CreateWindow("textB", windowB, "EDIT", (sender, message) => {
+        var textB = b.CreateWindow("textB", windowB, "EDIT", (sender, message) =>
+        {
             _logger.LogInformation($"       textB:{message}");
         });
 
         //BスレッドからAにボタン追加
         //TODO handleを保存できてない
-        var buttonC = b.CreateWindow("buttonC", windowA, "BUTTON", (sender, message) => {
+        var buttonC = b.CreateWindow("buttonC", windowA, "BUTTON", (sender, message) =>
+        {
             _logger.LogInformation($"       buttonC:{message}");
         });
 
         //WPFコンテンツを挿入する
         //AウインドウのスレッドでAウインドウに追加
-        await windowA.DispatchAsync((window) => {
+        await windowA.DispatchAsync((window) => 
+        {
             var style = 0U;
             style = 0x10000000U; //WS_VISIBLE
             style |= 0x40000000U; //WS_CHILD

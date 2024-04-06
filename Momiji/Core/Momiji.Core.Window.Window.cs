@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
@@ -7,27 +8,27 @@ using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
-internal abstract class NativeWindowBase : IWindow
+internal abstract class NativeWindowBase : IWindow, IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
 
     internal ILogger Logger { get; }
 
-    protected WindowContext WindowContext { get; }
+    protected WindowManager WindowManager { get; }
 
-    internal User32.HWND HWindow { set; get; }
-    public nint Handle => HWindow.Handle;
+    internal User32.HWND HWND { set; get; }
+    public nint Handle => HWND.Handle;
 
     internal NativeWindowBase(
         ILoggerFactory loggerFactory,
-        WindowContext windowContext
+        WindowManager windowManager
     )
     {
         //TODO UIAutomation
 
         _loggerFactory = loggerFactory;
         Logger = _loggerFactory.CreateLogger<NativeWindow>();
-        WindowContext = windowContext;
+        WindowManager = windowManager;
     }
 
     ~NativeWindowBase()
@@ -45,19 +46,19 @@ internal abstract class NativeWindowBase : IWindow
 
     public override string ToString()
     {
-        return $"NativeWindow[HWND:{HWindow}]";
+        return $"NativeWindow[HWND:{HWND}]";
     }
 
-    internal abstract void WndProc(IUIThread.IMessage message);
+    internal abstract void OnMessage(IUIThread.IMessage message);
 
     public async ValueTask<TResult> DispatchAsync<TResult>(Func<IWindow, TResult> item)
     {
-        return await WindowContext.DispatchAsync(item, this);
+        return await WindowManager.DispatchAsync(item, this);
     }
 
     public bool Close()
     {
-        Logger.LogWithHWnd(LogLevel.Information, "Close", HWindow, Environment.CurrentManagedThreadId);
+        Logger.LogWithHWnd(LogLevel.Information, "Close", HWND, Environment.CurrentManagedThreadId);
         SendMessage(
             0x0010, //WM_CLOSE
             nint.Zero,
@@ -73,7 +74,7 @@ internal abstract class NativeWindowBase : IWindow
         nint lParam
     )
     {
-        return WindowContext.WindowProcedure.SendMessage(HWindow, (uint)nMsg, wParam, lParam);
+        return WindowManager.WindowProcedure.SendMessage(HWND, (uint)nMsg, wParam, lParam);
     }
 
     public void PostMessage(
@@ -82,7 +83,7 @@ internal abstract class NativeWindowBase : IWindow
         nint lParam
     )
     {
-        WindowContext.WindowProcedure.PostMessage(HWindow, (uint)nMsg, wParam, lParam);
+        WindowManager.WindowProcedure.PostMessage(HWND, (uint)nMsg, wParam, lParam);
     }
 
     public bool ReplyMessage(
@@ -97,7 +98,7 @@ internal abstract class NativeWindowBase : IWindow
             Logger.LogWithLine(LogLevel.Trace, "ISMEX_SEND", Environment.CurrentManagedThreadId);
             var ret2 = User32.ReplyMessage(lResult);
             var error = new Win32Exception();
-            Logger.LogWithHWndAndError(LogLevel.Trace, $"ReplyMessage {ret2}", HWindow, error.ToString(), Environment.CurrentManagedThreadId);
+            Logger.LogWithHWndAndError(LogLevel.Trace, $"ReplyMessage {ret2}", HWND, error.ToString(), Environment.CurrentManagedThreadId);
             return ret2;
         }
         return false;
@@ -141,17 +142,17 @@ internal sealed class NativeWindow : NativeWindowBase
 
     internal NativeWindow(
         ILoggerFactory loggerFactory,
-        WindowContext windowContext,
+        WindowManager windowManager,
         string className,
         User32.WNDCLASSEX.CS classStyle,
         string windowTitle,
         NativeWindow? parent = default,
         IUIThread.OnMessage? onMessage = default,
         IUIThread.OnMessage? onMessageAfter = default
-    ): base(loggerFactory, windowContext)
+    ): base(loggerFactory, windowManager)
     {
         //TODO UIAutomation
-        WindowClass = WindowContext.WindowClassManager.QueryWindowClass(className, classStyle);
+        WindowClass = WindowManager.WindowClassManager.QueryWindowClass(className, classStyle);
 
         _windowTitle = windowTitle;
 
@@ -173,14 +174,14 @@ internal sealed class NativeWindow : NativeWindowBase
             Logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
         }
 
-        if (!User32.DestroyWindow(HWindow))
+        if (!User32.DestroyWindow(HWND))
         {
             var error = new Win32Exception();
-            Logger.LogWithHWndAndError(LogLevel.Error, "DestroyWindow failed", HWindow, error.ToString(), Environment.CurrentManagedThreadId);
+            Logger.LogWithHWndAndError(LogLevel.Error, "DestroyWindow failed", HWND, error.ToString(), Environment.CurrentManagedThreadId);
         }
         else
         {
-            Logger.LogWithHWnd(LogLevel.Trace, $"DestroyWindow OK", HWindow, Environment.CurrentManagedThreadId);
+            Logger.LogWithHWnd(LogLevel.Trace, $"DestroyWindow OK", HWND, Environment.CurrentManagedThreadId);
         }
 
         _disposed = true;
@@ -188,7 +189,7 @@ internal sealed class NativeWindow : NativeWindowBase
 
     public override string ToString()
     {
-        return $"NativeWindow[HWND:{HWindow}][title:{_windowTitle}]";
+        return $"NativeWindow[HWND:{HWND}][title:{_windowTitle}]";
     }
 
     private void CreateWindow(
@@ -215,12 +216,12 @@ internal sealed class NativeWindow : NativeWindowBase
         }
         else
         {
-            parentHWnd = parent.HWindow;
+            parentHWnd = parent.HWND;
 
             style = 0x10000000U; //WS_VISIBLE
             style |= 0x40000000U; //WS_CHILD
 
-            hMenu = WindowContext.WindowManager.GenerateChildId(this); //子ウインドウ識別子
+            hMenu = WindowManager.GenerateChildId(this); //子ウインドウ識別子
         }
 
         var CW_USEDEFAULT = unchecked((int)0x80000000);
@@ -228,7 +229,7 @@ internal sealed class NativeWindow : NativeWindowBase
         // メッセージループに移行してからCreateWindowする
         var task = DispatchAsync((window) =>
         {
-            return WindowContext.WindowProcedure.CreateWindow(
+            var handle = WindowManager.WindowProcedure.CreateWindow(
                 exStyle,
                 WindowClass.ClassName,
                 windowTitle,
@@ -241,41 +242,44 @@ internal sealed class NativeWindow : NativeWindowBase
                 hMenu,
                 WindowClass.HInstance
             );
+
+            if (HWND.Handle == User32.HWND.None.Handle)
+            {
+                Logger.LogWithHWnd(LogLevel.Trace, "assign handle (after CreateWindow)", handle, Environment.CurrentManagedThreadId);
+                HWND = handle;
+            }
+
+            return handle;
         });
 
         var handle = task.AsTask().GetAwaiter().GetResult();
+        Debug.Assert(handle.Handle == HWND.Handle);
 
-        if (HWindow.Handle == User32.HWND.None.Handle)
-        {
-            Logger.LogWithHWnd(LogLevel.Trace, "assign handle (after CreateWindow)", handle, Environment.CurrentManagedThreadId);
-            HWindow = handle;
-        }
-
-        Logger.LogWithHWnd(LogLevel.Information, "CreateWindow end", HWindow, Environment.CurrentManagedThreadId);
+        Logger.LogWithHWnd(LogLevel.Information, "CreateWindow end", HWND, Environment.CurrentManagedThreadId);
     }
 
-    internal override void WndProc(IUIThread.IMessage message)
+    internal override void OnMessage(IUIThread.IMessage message)
     {
-        Logger.LogWithMsg(LogLevel.Trace, "WndProc", HWindow, message, Environment.CurrentManagedThreadId);
+        Logger.LogWithMsg(LogLevel.Trace, "OnMessage", HWND, message, Environment.CurrentManagedThreadId);
 
         //TODO ここで同期コンテキスト？
         //TODO エラーの伝播
-        Logger.LogWithMsg(LogLevel.Trace, "onMessage", HWindow, message, Environment.CurrentManagedThreadId);
+        Logger.LogWithMsg(LogLevel.Trace, "onMessage", HWND, message, Environment.CurrentManagedThreadId);
         _onMessage?.Invoke(this, message);
 
         if (!message.Handled)
         {
-            Logger.LogWithMsg(LogLevel.Trace, "no handled message", HWindow, message, Environment.CurrentManagedThreadId);
-            WindowClass.CallOriginalWindowProc(HWindow, message);
+            Logger.LogWithMsg(LogLevel.Trace, "no handled message", HWND, message, Environment.CurrentManagedThreadId);
+            WindowClass.CallOriginalWindowProc(HWND, message);
         }
 
-        if (HWindow.Handle == User32.HWND.None.Handle)
+        if (HWND.Handle == User32.HWND.None.Handle)
         {
-            Logger.LogWithMsg(LogLevel.Trace, "HWND was free", HWindow, message, Environment.CurrentManagedThreadId);
+            Logger.LogWithMsg(LogLevel.Trace, "HWND was free", HWND, message, Environment.CurrentManagedThreadId);
         }
         else
         {
-            Logger.LogWithMsg(LogLevel.Trace, "onMessageAfter", HWindow, message, Environment.CurrentManagedThreadId);
+            Logger.LogWithMsg(LogLevel.Trace, "onMessageAfter", HWND, message, Environment.CurrentManagedThreadId);
             _onMessageAfter?.Invoke(this, message);
         }
     }
@@ -288,26 +292,26 @@ internal sealed class SubClassNativeWindow : NativeWindowBase
 
     internal SubClassNativeWindow(
         ILoggerFactory loggerFactory,
-        WindowContext windowContext,
+        WindowManager windowManager,
         User32.HWND childHWnd
-    ) : base(loggerFactory, windowContext)
+    ) : base(loggerFactory, windowManager)
     {
         //TODO UIAutomation
 
-        var (result, error) = SetWindowLong(childHWnd, -4, WindowContext.WindowProcedure.FunctionPointer); //GWLP_WNDPROC
+        var (result, error) = SetWindowLong(childHWnd, -4, WindowManager.WindowProcedure.FunctionPointer); //GWLP_WNDPROC
         if (result == nint.Zero && error.NativeErrorCode != 0)
         {
             Logger.LogWithHWndAndError(LogLevel.Error, "SetWindowLong failed", childHWnd, error.ToString(), Environment.CurrentManagedThreadId);
             ExceptionDispatchInfo.Throw(error);
         }
 
-        if (result == WindowContext.WindowProcedure.FunctionPointer)
+        if (result == WindowManager.WindowProcedure.FunctionPointer)
         {
             //変更前・変更後のWndProcが同じだった＝UIThread経由で作ったWindow　→　先にバイパスしたのにここに来たら異常事態
             throw new InvalidOperationException("already managed");
         }
 
-        HWindow = childHWnd;
+        HWND = childHWnd;
         _oldWinProc = result;
     }
 
@@ -323,10 +327,10 @@ internal sealed class SubClassNativeWindow : NativeWindowBase
             Logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
         }
 
-        var (result, error) = SetWindowLong(HWindow, -4, _oldWinProc);
+        var (result, error) = SetWindowLong(HWND, -4, _oldWinProc);
         if (result == nint.Zero && error.NativeErrorCode != 0)
         {
-            Logger.LogWithHWnd(LogLevel.Error, error, "SetWindowLong failed", HWindow, Environment.CurrentManagedThreadId);
+            Logger.LogWithHWnd(LogLevel.Error, error, "SetWindowLong failed", HWND, Environment.CurrentManagedThreadId);
         }
 
         _disposed = true;
@@ -334,39 +338,38 @@ internal sealed class SubClassNativeWindow : NativeWindowBase
 
     public override string ToString()
     {
-        return $"SubClassNativeWindow[HWND:{HWindow}]";
+        return $"SubClassNativeWindow[HWND:{HWND}]";
     }
 
-    internal override void WndProc(IUIThread.IMessage message)
+    internal override void OnMessage(IUIThread.IMessage message)
     {
-        Logger.LogWithMsg(LogLevel.Trace, "WndProc", HWindow, message, Environment.CurrentManagedThreadId);
+        Logger.LogWithMsg(LogLevel.Trace, "OnMessage", HWND, message, Environment.CurrentManagedThreadId);
 
         //TODO ここで同期コンテキスト？
         //TODO エラーの伝播
-        Logger.LogWithMsg(LogLevel.Trace, "onMessage", HWindow, message, Environment.CurrentManagedThreadId);
 
         if (!message.Handled)
         {
-            Logger.LogWithMsg(LogLevel.Trace, "no handled message", HWindow, message, Environment.CurrentManagedThreadId);
+            Logger.LogWithMsg(LogLevel.Trace, "no handled message", HWND, message, Environment.CurrentManagedThreadId);
             //サブクラス化している場合は、オリジナルのプロシージャを実行する
-            var isWindowUnicode = User32.IsWindowUnicode(HWindow);
+            var isWindowUnicode = User32.IsWindowUnicode(HWND);
             message.Result = isWindowUnicode
-                ? User32.CallWindowProcW(_oldWinProc, HWindow, (uint)message.Msg, message.WParam, message.LParam)
-                : User32.CallWindowProcA(_oldWinProc, HWindow, (uint)message.Msg, message.WParam, message.LParam)
+                ? User32.CallWindowProcW(_oldWinProc, HWND, (uint)message.Msg, message.WParam, message.LParam)
+                : User32.CallWindowProcA(_oldWinProc, HWND, (uint)message.Msg, message.WParam, message.LParam)
                 ;
             var error = new Win32Exception();
-            Logger.LogWithMsgAndError(LogLevel.Trace, "CallWindowProc result", HWindow, message, error.ToString(), Environment.CurrentManagedThreadId);
+            Logger.LogWithMsgAndError(LogLevel.Trace, "CallWindowProc result", HWND, message, error.ToString(), Environment.CurrentManagedThreadId);
 
             message.Handled = true;
         }
 
-        if (HWindow.Handle == User32.HWND.None.Handle)
+        if (HWND.Handle == User32.HWND.None.Handle)
         {
-            Logger.LogWithMsg(LogLevel.Trace, "HWND was free", HWindow, message, Environment.CurrentManagedThreadId);
+            Logger.LogWithMsg(LogLevel.Trace, "HWND was free", HWND, message, Environment.CurrentManagedThreadId);
         }
         else
         {
-            Logger.LogWithMsg(LogLevel.Trace, "onMessageAfter", HWindow, message, Environment.CurrentManagedThreadId);
+            Logger.LogWithMsg(LogLevel.Trace, "onMessageAfter", HWND, message, Environment.CurrentManagedThreadId);
         }
     }
 }

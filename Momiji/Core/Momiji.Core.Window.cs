@@ -54,12 +54,9 @@ public interface IUIThread : IDisposable, IAsyncDisposable
     );
 }
 
-public interface IWindow: IDisposable
+public interface IWindow
 {
-    nint Handle
-    {
-        get;
-    }
+    nint Handle { get; }
     ValueTask<T> DispatchAsync<T>(Func<IWindow, T> item);
 
     bool Close();

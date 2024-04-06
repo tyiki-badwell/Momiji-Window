@@ -158,7 +158,7 @@ internal sealed class UIThread : IUIThread
         var window =
             new NativeWindow(
                 _loggerFactory,
-                WindowContext,
+                WindowContext.WindowManager,
                 className,
                 classStyle,
                 windowTitle,

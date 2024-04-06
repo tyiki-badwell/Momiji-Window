@@ -10,7 +10,7 @@ internal sealed class WindowClassManager : IDisposable
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private bool _disposed;
-    private WindowProcedure WindowProcedure { get; }
+    private IWindowProcedure WindowProcedure { get; }
 
     private sealed record WindowClassMapKey(
         string ClassName,
@@ -21,7 +21,7 @@ internal sealed class WindowClassManager : IDisposable
 
     public WindowClassManager(
         ILoggerFactory loggerFactory,
-        WindowProcedure windowProcedure
+        IWindowProcedure windowProcedure
     )
     {
         ArgumentNullException.ThrowIfNull(loggerFactory);

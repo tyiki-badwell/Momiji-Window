@@ -10,16 +10,20 @@ internal interface IUIThreadChecker
     }
     void ThrowIfCalledFromOtherThread();
     void ThrowIfNoActive();
-    uint NativeThreadId
-    {
-        get;
-    }
+    uint NativeThreadId { get; }
+
+    delegate void InactivatedEventHandler();
+
+    event InactivatedEventHandler OnInactivated;
 }
 
 internal class UIThreadActivator : IUIThreadChecker
 {
     private readonly ILoggerFactory _loggerFactory;
     internal int _uiThreadId;
+
+    public event IUIThreadChecker.InactivatedEventHandler? OnInactivated;
+
     public uint NativeThreadId
     {
         get; private set;
@@ -100,6 +104,8 @@ internal class UIThreadActivator : IUIThreadChecker
             if (disposing)
             {
                 _logger.LogWithLine(LogLevel.Trace, $"DispatcherQueue Disactivate [uiThreadId:{_activator._uiThreadId}]", Environment.CurrentManagedThreadId);
+                _activator.OnInactivated?.Invoke();
+
                 _activator._uiThreadId = 0;
                 _activator.NativeThreadId = 0;
             }
