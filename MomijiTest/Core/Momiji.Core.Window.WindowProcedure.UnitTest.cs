@@ -90,7 +90,8 @@ public class WindowProcedureTest : IDisposable
             using var proc = new WindowProcedure(
                 _loggerFactory,
                 uiThreadActivator,
-                (hwnd, message) => {
+                (hwnd, message) =>
+                {
                     _logger.LogInformation($"šthread:[{Environment.CurrentManagedThreadId:X}] OnMessage {hwnd:X} {message}");
 
                     if (message.Msg == 0)
@@ -110,7 +111,8 @@ public class WindowProcedureTest : IDisposable
                         }
                     }
                 },
-                (message) => {
+                (message) =>
+                {
                     _logger.LogInformation($"šthread:[{Environment.CurrentManagedThreadId:X}] OnThreadMessage {message}");
 
                     if (message.Msg == 0)

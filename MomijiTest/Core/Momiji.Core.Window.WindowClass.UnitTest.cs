@@ -49,7 +49,7 @@ public class WindowClassTest : IDisposable
         return configuration;
     }
 
-    private sealed record class Message : IUIThread.IMessage
+    private sealed record class Message : IWindowManager.IMessage
     {
         public required int Msg
         {

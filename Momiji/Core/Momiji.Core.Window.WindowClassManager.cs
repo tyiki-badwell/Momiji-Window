@@ -5,7 +5,15 @@ using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
-internal sealed class WindowClassManager : IDisposable
+internal interface IWindowClassManager
+{
+    IWindowClass QueryWindowClass(
+        string className,
+        User32.WNDCLASSEX.CS classStyle
+    );
+}
+
+internal sealed class WindowClassManager : IWindowClassManager, IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -64,7 +72,7 @@ internal sealed class WindowClassManager : IDisposable
         _disposed = true;
     }
 
-    internal WindowClass QueryWindowClass(
+    public IWindowClass QueryWindowClass(
         string className, 
         User32.WNDCLASSEX.CS classStyle
     )

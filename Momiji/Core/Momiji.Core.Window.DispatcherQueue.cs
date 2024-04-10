@@ -5,7 +5,13 @@ using Momiji.Internal.Util;
 
 namespace Momiji.Core.Window;
 
-internal sealed class DispatcherQueue : IDisposable
+internal interface IDispatcherQueue
+{
+    void Dispatch(SendOrPostCallback callback, object? param);
+    ValueTask<TResult> DispatchAsync<TResult>(Func<TResult> func);
+}
+
+internal sealed class DispatcherQueue : IDispatcherQueue, IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -78,7 +84,7 @@ internal sealed class DispatcherQueue : IDisposable
         DispatchQueue();
     }
 
-    internal async ValueTask<TResult> DispatchAsync<TResult>(Func<TResult> func)
+    public async ValueTask<TResult> DispatchAsync<TResult>(Func<TResult> func)
     {
         _logger.LogWithLine(LogLevel.Trace, "DispatchAsync", Environment.CurrentManagedThreadId);
 
@@ -117,7 +123,7 @@ internal sealed class DispatcherQueue : IDisposable
         _queueEvent.Set();
     }
 
-    internal void Dispatch(SendOrPostCallback callback, object? param)
+    public void Dispatch(SendOrPostCallback callback, object? param)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         UIThreadChecker.ThrowIfNoActive();

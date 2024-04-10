@@ -44,8 +44,8 @@ internal interface IWindowProcedure
     );
 
     void DispatchMessage();
-}
 
+}
 
 internal sealed class WindowProcedure : IWindowProcedure, IDisposable
 {
@@ -58,19 +58,19 @@ internal sealed class WindowProcedure : IWindowProcedure, IDisposable
     private readonly PinnedDelegate<User32.WNDPROC> _wndProc;
     public nint FunctionPointer => _wndProc.FunctionPointer;
 
-    internal delegate void OnMessage(User32.HWND hwnd, IUIThread.IMessage message);
-    private readonly OnMessage _onMessage;
+    internal delegate void OnMessageEventHandler(User32.HWND hwnd, IWindowManager.IMessage message);
+    private readonly OnMessageEventHandler? _onMessage;
 
-    internal delegate void OnThreadMessage(IUIThread.IMessage message);
-    private readonly OnThreadMessage _onThreadMessage;
+    internal delegate void OnThreadMessageEventHandler(IWindowManager.IMessage message);
+    private readonly OnThreadMessageEventHandler? _onThreadMessage;
 
     private readonly Stack<Exception> _wndProcExceptionStack = [];
 
     internal WindowProcedure(
         ILoggerFactory loggerFactory,
         IUIThreadChecker uiThreadChecker,
-        OnMessage onMessage,
-        OnThreadMessage onThreadMessage
+        OnMessageEventHandler? onMessage,
+        OnThreadMessageEventHandler? onThreadMessage
     )
     {
         ArgumentNullException.ThrowIfNull(loggerFactory);
@@ -80,9 +80,10 @@ internal sealed class WindowProcedure : IWindowProcedure, IDisposable
         UIThreadChecker = uiThreadChecker;
         UIThreadChecker.OnInactivated += OnInactivated;
 
+        _wndProc = new(WndProc);
+
         _onMessage = onMessage;
         _onThreadMessage = onThreadMessage;
-        _wndProc = new(WndProc);
 
         Setup();
     }
@@ -357,7 +358,7 @@ internal sealed class WindowProcedure : IWindowProcedure, IDisposable
 
                 try
                 {
-                    _onThreadMessage(message);
+                    _onThreadMessage?.Invoke(message);
                 }
                 catch (Exception e)
                 {
@@ -395,7 +396,7 @@ internal sealed class WindowProcedure : IWindowProcedure, IDisposable
         }
     }
 
-    private sealed record class Message : IUIThread.IMessage
+    private sealed record class Message : IWindowManager.IMessage
     {
         public required int Msg
         {
@@ -451,7 +452,7 @@ internal sealed class WindowProcedure : IWindowProcedure, IDisposable
 
         try
         {
-            _onMessage(hwnd, message);
+            _onMessage?.Invoke(hwnd, message);
 
             if (message.Handled)
             {

@@ -42,7 +42,7 @@ internal static partial class LogDefine
     [LoggerMessage(
         Message = "thread:[{threadId:X}] hwnd:[{hwnd}] {message} msg:[{msg}] ({file}:{line} {member})"
     )]
-    internal static partial void LogWithMsg(this ILogger logger, LogLevel logLevel, string message, User32.HWND hwnd, IUIThread.IMessage msg, int threadId,
+    internal static partial void LogWithMsg(this ILogger logger, LogLevel logLevel, string message, User32.HWND hwnd, IWindowManager.IMessage msg, int threadId,
         [CallerFilePath] string file = "",
         [CallerLineNumber] int line = 0,
         [CallerMemberName] string member = ""
@@ -52,7 +52,7 @@ internal static partial class LogDefine
     [LoggerMessage(
         Message = "thread:[{threadId:X}] hwnd:[{hwnd}] {message} msg:[{msg}] error:[{error}] ({file}:{line} {member})"
     )]
-    internal static partial void LogWithMsgAndError(this ILogger logger, LogLevel logLevel, string message, User32.HWND hwnd, IUIThread.IMessage msg, string error, int threadId,
+    internal static partial void LogWithMsgAndError(this ILogger logger, LogLevel logLevel, string message, User32.HWND hwnd, IWindowManager.IMessage msg, string error, int threadId,
         [CallerFilePath] string file = "",
         [CallerLineNumber] int line = 0,
         [CallerMemberName] string member = ""

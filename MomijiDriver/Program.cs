@@ -68,7 +68,7 @@ public class Worker : BackgroundService
         var a = scope.ServiceProvider.GetRequiredService<IUIThread>();
         var b = scope.ServiceProvider.GetRequiredService<IUIThread>();
 
-        var windowA = a.CreateWindow("windowA", onMessage: async (sender, message) => 
+        var windowA = a.CreateWindow("windowA", onMessage: async(sender, message) =>
         {
             //logger?.LogInformation($"   windowA:{message}");
             switch (message.Msg)
@@ -90,9 +90,10 @@ public class Worker : BackgroundService
 
             }
         });
+
         var windowB = b.CreateWindow("windowB");
 
-        var buttonA = a.CreateWindow("buttonA", windowA, "BUTTON", (sender, message) => 
+        var buttonA = a.CreateWindow("buttonA", windowA, "BUTTON", onMessage: (sender, message) =>
         {
             _logger.LogInformation($"       buttonA:{message}");
             switch (message.Msg)
@@ -135,25 +136,24 @@ public class Worker : BackgroundService
                     break;
 
             }
-
         });
-        var textA = a.CreateWindow("textA", windowA, "EDIT", (sender, message) => 
+
+        var textA = a.CreateWindow("textA", windowA, "EDIT", onMessage: (sender, message) =>
         {
             _logger.LogInformation($"       textA:{message}");
         });
 
-        var buttonB = b.CreateWindow("buttonB", windowB, "BUTTON", (sender, message) =>
+        var buttonB = b.CreateWindow("buttonB", windowB, "BUTTON", onMessage: (sender, message) =>
         {
             _logger.LogInformation($"       buttonB:{message}");
         });
-        var textB = b.CreateWindow("textB", windowB, "EDIT", (sender, message) =>
+        var textB = b.CreateWindow("textB", windowB, "EDIT", onMessage: (sender, message) =>
         {
             _logger.LogInformation($"       textB:{message}");
         });
 
-        //BスレッドからAにボタン追加
-        //TODO handleを保存できてない
-        var buttonC = b.CreateWindow("buttonC", windowA, "BUTTON", (sender, message) =>
+        //BスレッドからAウインドウにボタン追加
+        var buttonC = b.CreateWindow("buttonC", windowA, "BUTTON", onMessage: (sender, message) =>
         {
             _logger.LogInformation($"       buttonC:{message}");
         });

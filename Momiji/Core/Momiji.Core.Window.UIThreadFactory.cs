@@ -97,8 +97,8 @@ public sealed class UIThreadFactory : IUIThreadFactory
         var tcs = new TaskCompletionSource(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 
         var uiThread = new UIThread(
-            _configuration, 
-            _loggerFactory, 
+            _loggerFactory,
+            _configuration,
             tcs, 
             onStop, 
             onUnhandledException

@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Momiji.Core.Buffer;
 using Momiji.Internal.Log;
@@ -16,10 +17,11 @@ internal sealed class WindowContext : IDisposable
 
     private IUIThreadChecker UIThreadChecker { get; }
     private DispatcherQueue DispatcherQueue { get; }
-    internal WindowManager WindowManager { get; }
+    private WindowManager WindowManager { get; }
 
     internal WindowContext(
         ILoggerFactory loggerFactory,
+        IConfiguration configuration,
         IUIThreadChecker uiThreadChecker,
         IUIThread.OnUnhandledException? onUnhandledException = default
     )
@@ -32,7 +34,7 @@ internal sealed class WindowContext : IDisposable
         UIThreadChecker = uiThreadChecker;
 
         DispatcherQueue = new(_loggerFactory, UIThreadChecker, onUnhandledException);
-        WindowManager = new(_loggerFactory, UIThreadChecker, DispatcherQueue);
+        WindowManager = new(_loggerFactory, configuration, UIThreadChecker, DispatcherQueue);
     }
 
     ~WindowContext()
@@ -61,6 +63,7 @@ internal sealed class WindowContext : IDisposable
             //TODO ループの終了は待たずに急に終わってよいか？
 
             WindowManager.Dispose();
+            DispatcherQueue.Dispose();
 
             _cts.Dispose();
         }
@@ -168,8 +171,13 @@ internal sealed class WindowContext : IDisposable
         _logger.LogWithLine(LogLevel.Information, "end message loop.", Environment.CurrentManagedThreadId);
     }
 
-    internal async ValueTask<TResult> DispatchAsync<TResult>(Func<TResult> func)
+    internal async ValueTask<TResult> DispatchAsync<TResult>(Func<IWindowManager, TResult> item)
     {
+        TResult func()
+        {
+            return item(WindowManager);
+        }
+
         return await DispatcherQueue.DispatchAsync(func);
     }
 

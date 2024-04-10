@@ -8,7 +8,16 @@ using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
-internal sealed class WindowClass : IDisposable
+internal interface IWindowClass
+{
+    nint ClassName { get; }
+
+    nint HInstance { get; }
+
+    void CallOriginalWindowProc(User32.HWND hwnd, IWindowManager.IMessage message);
+}
+
+internal sealed class WindowClass : IWindowClass, IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -19,9 +28,9 @@ internal sealed class WindowClass : IDisposable
     private User32.WNDCLASSEX _windowClass;
     private readonly nint _originalWndProc;
 
-    internal nint ClassName => _windowClass.lpszClassName;
+    public nint ClassName => _windowClass.lpszClassName;
 
-    internal nint HInstance => _windowClass.hInstance;
+    public nint HInstance => _windowClass.hInstance;
 
     internal WindowClass(
         ILoggerFactory loggerFactory,
@@ -139,7 +148,7 @@ internal sealed class WindowClass : IDisposable
         _disposed = true;
     }
 
-    internal void CallOriginalWindowProc(User32.HWND hwnd, IUIThread.IMessage message)
+    public void CallOriginalWindowProc(User32.HWND hwnd, IWindowManager.IMessage message)
     {
         var isWindowUnicode = (hwnd.Handle != User32.HWND.None.Handle) && User32.IsWindowUnicode(hwnd);
 

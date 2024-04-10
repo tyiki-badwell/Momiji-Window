@@ -51,10 +51,10 @@ public class WindowContextTest : IDisposable
     public async Task TestDispatchImmidiate()
     {
         var uiThreadActivator = new UIThreadActivator(_loggerFactory);
-        using var context = new WindowContext(_loggerFactory, uiThreadActivator);
+        using var context = new WindowContext(_loggerFactory, CreateConfiguration(), uiThreadActivator);
         using var active = uiThreadActivator.Activate();
 
-        var result = await context.DispatchAsync(() => 1);
+        var result = await context.DispatchAsync((manager) => 1);
         Assert.AreEqual(1, result);
     }
 
@@ -62,13 +62,13 @@ public class WindowContextTest : IDisposable
     public async Task TestDispatchAsyncFail1()
     {
         var uiThreadActivator = new UIThreadActivator(_loggerFactory);
-        using var context = new WindowContext(_loggerFactory, uiThreadActivator);
+        using var context = new WindowContext(_loggerFactory, CreateConfiguration(), uiThreadActivator);
 
         try
         {
             var result = await Task.Run(async () =>
             {
-                return await context.DispatchAsync(() => 1);
+                return await context.DispatchAsync((manager) => 1);
             });
             Assert.Fail();
         }
@@ -82,7 +82,7 @@ public class WindowContextTest : IDisposable
     public async Task TestDispatchAsyncFail2()
     {
         var uiThreadActivator = new UIThreadActivator(_loggerFactory);
-        using var context = new WindowContext(_loggerFactory, uiThreadActivator);
+        using var context = new WindowContext(_loggerFactory, CreateConfiguration(), uiThreadActivator);
 
         try
         {
@@ -103,7 +103,7 @@ public class WindowContextTest : IDisposable
 
             var result = await Task.Run(async () =>
             {
-                return await context.DispatchAsync(() => 1);
+                return await context.DispatchAsync((manager) => 1);
             });
 
             Assert.Fail();
@@ -118,7 +118,7 @@ public class WindowContextTest : IDisposable
     public async Task TestDispatchAsyncOK()
     {
         var uiThreadActivator = new UIThreadActivator(_loggerFactory);
-        using var context = new WindowContext(_loggerFactory, uiThreadActivator);
+        using var context = new WindowContext(_loggerFactory, CreateConfiguration(), uiThreadActivator);
 
         using var cts = new CancellationTokenSource();
         var tcs = new TaskCompletionSource(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
@@ -134,7 +134,7 @@ public class WindowContextTest : IDisposable
 
         var result = await Task.Run(async () =>
         {
-            return await context.DispatchAsync(() => 1);
+            return await context.DispatchAsync((manager) => 1);
         });
 
         Assert.AreEqual(result, 1);
@@ -150,7 +150,7 @@ public class WindowContextTest : IDisposable
 
         {
             var uiThreadActivator = new UIThreadActivator(_loggerFactory);
-            var context = new WindowContext(_loggerFactory, uiThreadActivator);
+            var context = new WindowContext(_loggerFactory, CreateConfiguration(), uiThreadActivator);
 
             var tcs = new TaskCompletionSource(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 

@@ -1,7 +1,6 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Momiji.Internal.Log;
-using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
@@ -18,26 +17,21 @@ internal sealed class UIThread : IUIThread
 
     private WindowContext WindowContext { get; }
 
-    private readonly IUIThreadFactory.Param _param;
-
     internal UIThread(
-        IConfiguration configuration,
         ILoggerFactory loggerFactory,
+        IConfiguration configuration,
         TaskCompletionSource startTcs,
         IUIThread.OnStop? onStop = default,
         IUIThread.OnUnhandledException? onUnhandledException = default
     )
     {
-        ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(loggerFactory);
+        ArgumentNullException.ThrowIfNull(configuration);
 
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<UIThread>();
         UIThreadActivator = new(_loggerFactory);
-        WindowContext = new(_loggerFactory, UIThreadActivator, onUnhandledException);
-
-        _param = new IUIThreadFactory.Param();
-        configuration.GetSection($"{typeof(UIThread).FullName}").Bind(_param);
+        WindowContext = new(_loggerFactory, configuration, UIThreadActivator, onUnhandledException);
 
         _processCancel = new CancellationTokenSource();
 
@@ -122,7 +116,7 @@ internal sealed class UIThread : IUIThread
         }
     }
 
-    public async ValueTask<TResult> DispatchAsync<TResult>(Func<TResult> func)
+    public async ValueTask<TResult> DispatchAsync<TResult>(Func<IWindowManager, TResult> func)
     {
         UIThreadActivator.ThrowIfNoActive();
         CheckRunning();
@@ -131,7 +125,7 @@ internal sealed class UIThread : IUIThread
 
     private void CheckRunning()
     {
-        _logger.LogWithLine(LogLevel.Information, $"CheckRunning {_processTask.Status}", Environment.CurrentManagedThreadId);
+        _logger.LogWithLine(LogLevel.Trace, $"CheckRunning {_processTask.Status}", Environment.CurrentManagedThreadId);
 
         if (!(_processTask.Status == TaskStatus.WaitingForActivation) || (_processTask.Status == TaskStatus.Running))
         {
@@ -139,56 +133,21 @@ internal sealed class UIThread : IUIThread
         }
     }
 
-    public IWindow CreateWindow(
-        string windowTitle,
-        IWindow? parent,
-        string className,
-        IUIThread.OnMessage? onMessage,
-        IUIThread.OnMessage? onMessageAfter
-    )
-    {
-        UIThreadActivator.ThrowIfNoActive();
-        CheckRunning();
-
-        var classStyle = (className == string.Empty) 
-                ? (User32.WNDCLASSEX.CS)_param.CS
-                : User32.WNDCLASSEX.CS.NONE
-                ;
-
-        var window =
-            new NativeWindow(
-                _loggerFactory,
-                WindowContext.WindowManager,
-                className,
-                classStyle,
-                windowTitle,
-                (parent as NativeWindow),
-                onMessage,
-                onMessageAfter
-            );
-
-        return window;
-    }
-
-    private Task<Task> Start(
+    private Task Start(
         TaskCompletionSource startTcs,
         IUIThread.OnStop? onStop = default
     )
     {
         return Run(
             startTcs
-        ).ContinueWith(async (task) => {
+        ).ContinueWith((task) => {
             //TODO このタスクでcontinue withすると、UIスレッドでQueue登録してスレッド終了し、QueueのCOMアクセスが失敗する
 
             _logger.LogWithLine(LogLevel.Information, $"process task end [continues:{task.Status}][process:{_processTask?.Status}]", Environment.CurrentManagedThreadId);
 
-            //TODO エラー時のみキャンセルすればよいハズ？
-            await CancelAsync().ConfigureAwait(false);
-            _logger.LogWithLine(LogLevel.Trace, "cancel end", Environment.CurrentManagedThreadId);
-
             try
             {
-                await task;
+                task.Wait();
                 _logger.LogWithLine(LogLevel.Trace, "call on stop", Environment.CurrentManagedThreadId);
                 onStop?.Invoke(default);
             }

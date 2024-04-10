@@ -29,6 +29,15 @@ public interface IUIThreadFactory : IDisposable, IAsyncDisposable
 
 public interface IUIThread : IDisposable, IAsyncDisposable
 {
+    delegate void OnStop(Exception? exception);
+    delegate bool OnUnhandledException(Exception exception);
+
+    ValueTask<TResult> DispatchAsync<TResult>(Func<IWindowManager, TResult> func);
+
+}
+
+public interface IWindowManager
+{
     public interface IMessage
     {
         int Msg { get; }
@@ -39,11 +48,7 @@ public interface IUIThread : IDisposable, IAsyncDisposable
         bool Handled { get; set; }
     }
 
-    delegate void OnStop(Exception? exception);
     delegate void OnMessage(IWindow sender, IMessage message);
-    delegate bool OnUnhandledException(Exception exception);
-
-    ValueTask<TResult> DispatchAsync<TResult>(Func<TResult> func);
 
     IWindow CreateWindow(
         string windowTitle,
@@ -52,12 +57,13 @@ public interface IUIThread : IDisposable, IAsyncDisposable
         OnMessage? onMessage = default,
         OnMessage? onMessageAfter = default
     );
+
 }
 
 public interface IWindow
 {
     nint Handle { get; }
-    ValueTask<T> DispatchAsync<T>(Func<IWindow, T> item);
+    ValueTask<T> DispatchAsync<T>(Func<IWindow, T> func);
 
     bool Close();
 

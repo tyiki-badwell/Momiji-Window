@@ -8,9 +8,23 @@ using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
+public static class IUIThreadExtensions
+{
+    public static IWindow CreateWindow(
+        this IUIThread uiThread,
+        string windowTitle,
+        IWindow? parent = default,
+        string className = "",
+        IWindowManager.OnMessage? onMessage = default,
+        IWindowManager.OnMessage? onMessageAfter = default
+    )
+    {
+        return uiThread.DispatchAsync((manager) => manager.CreateWindow(windowTitle, parent, className, onMessage, onMessageAfter)).AsTask().GetAwaiter().GetResult();
+    }
+
+}
 public static class IWindowExtensions
 {
-
     public static ValueTask<bool> MoveAsync(
         this IWindow window,
         int x,

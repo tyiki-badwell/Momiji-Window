@@ -58,12 +58,15 @@ public class UIThreadTest : IDisposable
         var tcs = new TaskCompletionSource(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 
         using var uiThread = new UIThread(
-            CreateConfiguration(),
             _loggerFactory,
+            CreateConfiguration(),
             tcs
         );
 
         await tcs.Task;
+
+        var result = await uiThread.DispatchAsync((manager) => { return 999; });
+        Assert.AreEqual(999, result);
     }
 
     [TestMethod]
@@ -72,10 +75,16 @@ public class UIThreadTest : IDisposable
         var tcs = new TaskCompletionSource(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
         tcs.SetCanceled();
 
+        using var mre = new ManualResetEventSlim(false);
+
         using var uiThread = new UIThread(
-            CreateConfiguration(),
             _loggerFactory,
-            tcs
+            CreateConfiguration(),
+            tcs,
+            (e) => {
+                _logger.LogInformation(e, "error occurred");
+                mre.Set();
+            }
         );
 
         try
@@ -89,28 +98,18 @@ public class UIThreadTest : IDisposable
             _logger.LogInformation(e, "error occurred");
         }
 
+        mre.Wait();
+
         try
         {
-            await uiThread.DispatchAsync(() => { return 0; });
+            await uiThread.DispatchAsync((manager) => { return 0; });
+            Assert.Fail();
         }
         catch (InvalidOperationException e)
         {
             //OK
             _logger.LogInformation(e, "error occurred");
         }
-
-        try
-        {
-            uiThread.CreateWindow("fail", default, "dummy", default, default);
-        }
-        catch (InvalidOperationException e)
-        {
-            //OK
-            _logger.LogInformation(e, "error occurred");
-        }
-
-
     }
-
 
 }

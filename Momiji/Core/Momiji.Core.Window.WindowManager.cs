@@ -2,6 +2,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Momiji.Internal.Debug;
 using Momiji.Internal.Log;
@@ -11,7 +12,7 @@ using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
-internal sealed class WindowManager : IDisposable
+internal sealed class WindowManager : IWindowManager, IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -19,12 +20,13 @@ internal sealed class WindowManager : IDisposable
 
     private IUIThreadChecker UIThreadChecker { get; }
 
-    private DispatcherQueue DispatcherQueue { get; }
-    internal WindowClassManager WindowClassManager { get; }
-    internal WindowProcedure WindowProcedure { get; }
+    private IDispatcherQueue DispatcherQueue { get; }
+
+    internal IWindowClassManager WindowClassManager { get; }
+    internal IWindowProcedure WindowProcedure { get; }
     private WindowManagerSynchronizationContext WindowContextSynchronizationContext { get; }
 
-    internal bool IsEmpty => _windowMap.IsEmpty;
+    public bool IsEmpty => _windowMap.IsEmpty;
 
     private readonly ConcurrentDictionary<User32.HWND, NativeWindowBase> _windowMap = [];
     private readonly Stack<NativeWindowBase> _windowStack = [];
@@ -32,23 +34,32 @@ internal sealed class WindowManager : IDisposable
     private readonly ConcurrentDictionary<int, WeakReference<NativeWindowBase>> _childIdMap = [];
     private int childId = 0;
 
+    private readonly IUIThreadFactory.Param _param;
+
     internal WindowManager(
         ILoggerFactory loggerFactory,
+        IConfiguration configuration,
         IUIThreadChecker uiThreadChecker,
-        DispatcherQueue dispatcherQueue
+        IDispatcherQueue dispatcherQueue
     )
     {
         ArgumentNullException.ThrowIfNull(loggerFactory);
 
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<WindowManager>();
+
         UIThreadChecker = uiThreadChecker;
         UIThreadChecker.OnInactivated += OnInactivated;
 
         DispatcherQueue = dispatcherQueue;
         WindowContextSynchronizationContext = new(_loggerFactory, DispatcherQueue);
-        WindowProcedure = new(_loggerFactory, uiThreadChecker, OnMessage, OnThreadMessage);
-        WindowClassManager = new(_loggerFactory, WindowProcedure);
+
+        WindowProcedure = new WindowProcedure(_loggerFactory, uiThreadChecker, OnMessage, OnThreadMessage);
+
+        WindowClassManager = new WindowClassManager(_loggerFactory, WindowProcedure);
+
+        _param = new IUIThreadFactory.Param();
+        configuration.GetSection($"{typeof(UIThread).FullName}").Bind(_param);
     }
 
     ~WindowManager()
@@ -75,8 +86,9 @@ internal sealed class WindowManager : IDisposable
 
             UIThreadChecker.OnInactivated -= OnInactivated;
 
-            WindowClassManager.Dispose();
-            WindowProcedure.Dispose();
+            ((WindowClassManager)WindowClassManager).Dispose();
+
+            ((WindowProcedure)WindowProcedure).Dispose();
         }
 
         _disposed = true;
@@ -115,7 +127,7 @@ internal sealed class WindowManager : IDisposable
         }
     }
 
-    private TResult InvokeWithContext<TResult>(Func<IWindow, TResult> item, NativeWindowBase window)
+    private TResult InvokeWithContext<TResult>(Func<IWindow, TResult> func, NativeWindowBase window)
     {
         //TODO スレッドセーフになっているか要確認(再入しても問題ないなら気にしない)
         //TODO 何かのコンテキストに移す
@@ -128,7 +140,7 @@ internal sealed class WindowManager : IDisposable
             using var switchContext = new SwitchThreadDpiAwarenessContextPerMonitorAwareV2RAII(window, _logger);
 
             _logger.LogWithLine(LogLevel.Trace, "Invoke start", Environment.CurrentManagedThreadId);
-            var result = item(window);
+            var result = func(window);
             _logger.LogWithLine(LogLevel.Trace, "Invoke end", Environment.CurrentManagedThreadId);
             return result;
         }
@@ -147,7 +159,7 @@ internal sealed class WindowManager : IDisposable
         return id;
     }
 
-    internal void CloseAll()
+    public void CloseAll()
     {
         //TODO SendMessageに行くのでUIスレッドで呼び出す必要は無いが、統一すべき？
         foreach (var item in _windowMap)
@@ -198,9 +210,39 @@ internal sealed class WindowManager : IDisposable
         _windowMap.Clear();
     }
 
+    public IWindow CreateWindow(
+        string windowTitle,
+        IWindow? parent,
+        string className,
+        IWindowManager.OnMessage? onMessage,
+        IWindowManager.OnMessage? onMessageAfter
+    )
+    {
+        //UIスレッドで呼び出す必要アリ
+        UIThreadChecker.ThrowIfCalledFromOtherThread();
+
+        var classStyle = (className == string.Empty)
+                ? (User32.WNDCLASSEX.CS)_param.CS
+                : User32.WNDCLASSEX.CS.NONE
+                ;
+
+        var window =
+            new NativeWindow(
+                _loggerFactory,
+                this,
+                className,
+                classStyle,
+                windowTitle,
+                (parent as NativeWindow),
+                onMessage,
+                onMessageAfter
+            );
+
+        return window;
+    }
+
     internal async ValueTask<TResult> DispatchAsync<TResult>(Func<IWindow, TResult> item, NativeWindowBase window)
     {
-        //TODO WindowManagerに移動？
         _logger.LogWithLine(LogLevel.Trace, "DispatchAsync", Environment.CurrentManagedThreadId);
 
         TResult func()
@@ -211,7 +253,7 @@ internal sealed class WindowManager : IDisposable
         return await DispatcherQueue.DispatchAsync(func);
     }
 
-    private void OnThreadMessage(IUIThread.IMessage message)
+    private void OnThreadMessage(IWindowManager.IMessage message)
     {
         _logger.LogWithMsg(LogLevel.Trace, "OnThreadMessage", User32.HWND.None, message, Environment.CurrentManagedThreadId);
 
@@ -221,7 +263,7 @@ internal sealed class WindowManager : IDisposable
 
     }
 
-    private void OnMessage(User32.HWND hwnd, IUIThread.IMessage message)
+    private void OnMessage(User32.HWND hwnd, IWindowManager.IMessage message)
     {
         _logger.LogWithMsg(LogLevel.Trace, "OnMessage", hwnd, message, Environment.CurrentManagedThreadId);
 
@@ -258,7 +300,7 @@ internal sealed class WindowManager : IDisposable
         }
     }
 
-    private void WndProcBefore(User32.HWND hwnd, IUIThread.IMessage message)
+    private void WndProcBefore(User32.HWND hwnd, IWindowManager.IMessage message)
     {
         switch (message.Msg)
         {
@@ -395,7 +437,7 @@ internal sealed class WindowManager : IDisposable
         }
     }
 
-    private void WndProcError(User32.HWND hwnd, IUIThread.IMessage message)
+    private void WndProcError(User32.HWND hwnd, IWindowManager.IMessage message)
     {
         _logger.LogWithHWnd(LogLevel.Trace, $"WndProcError [{SynchronizationContext.Current}]", hwnd, Environment.CurrentManagedThreadId);
 
@@ -415,7 +457,7 @@ internal sealed class WindowManager : IDisposable
         }
     }
 
-    private void WndProcAfter(NativeWindowBase window, IUIThread.IMessage message)
+    private void WndProcAfter(NativeWindowBase window, IWindowManager.IMessage message)
     {
         _logger.LogWithHWnd(LogLevel.Trace, $"WndProcAfter [{SynchronizationContext.Current}]", window.HWND, Environment.CurrentManagedThreadId);
 
@@ -444,7 +486,7 @@ internal sealed class WindowManager : IDisposable
         Remove(window);
     }
 
-    private void CallOriginalWindowProc(User32.HWND hwnd, IUIThread.IMessage message)
+    private void CallOriginalWindowProc(User32.HWND hwnd, IWindowManager.IMessage message)
     {
         var isWindowUnicode = User32.IsWindowUnicode(hwnd);
 
@@ -558,11 +600,11 @@ internal sealed class WindowManagerSynchronizationContext : SynchronizationConte
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
 
-    private readonly DispatcherQueue _dispatcherQueue;
+    private readonly IDispatcherQueue _dispatcherQueue;
 
     internal WindowManagerSynchronizationContext(
         ILoggerFactory loggerFactory,
-        DispatcherQueue dispatcherQueue
+        IDispatcherQueue dispatcherQueue
     )
     {
         _loggerFactory = loggerFactory;

@@ -49,11 +49,11 @@ internal abstract class NativeWindowBase : IWindow, IDisposable
         return $"NativeWindow[HWND:{HWND}]";
     }
 
-    internal abstract void OnMessage(IUIThread.IMessage message);
+    internal abstract void OnMessage(IWindowManager.IMessage message);
 
-    public async ValueTask<TResult> DispatchAsync<TResult>(Func<IWindow, TResult> item)
+    public async ValueTask<TResult> DispatchAsync<TResult>(Func<IWindow, TResult> func)
     {
-        return await WindowManager.DispatchAsync(item, this);
+        return await WindowManager.DispatchAsync(func, this);
     }
 
     public bool Close()
@@ -133,10 +133,10 @@ internal abstract class NativeWindowBase : IWindow, IDisposable
 internal sealed class NativeWindow : NativeWindowBase
 {
     private bool _disposed;
-    private readonly IUIThread.OnMessage? _onMessage;
-    private readonly IUIThread.OnMessage? _onMessageAfter;
+    private readonly IWindowManager.OnMessage? _onMessage;
+    private readonly IWindowManager.OnMessage? _onMessageAfter;
 
-    private WindowClass WindowClass { get; }
+    private IWindowClass WindowClass { get; }
 
     private readonly string _windowTitle;
 
@@ -147,8 +147,8 @@ internal sealed class NativeWindow : NativeWindowBase
         User32.WNDCLASSEX.CS classStyle,
         string windowTitle,
         NativeWindow? parent = default,
-        IUIThread.OnMessage? onMessage = default,
-        IUIThread.OnMessage? onMessageAfter = default
+        IWindowManager.OnMessage? onMessage = default,
+        IWindowManager.OnMessage? onMessageAfter = default
     ): base(loggerFactory, windowManager)
     {
         //TODO UIAutomation
@@ -258,7 +258,7 @@ internal sealed class NativeWindow : NativeWindowBase
         Logger.LogWithHWnd(LogLevel.Information, "CreateWindow end", HWND, Environment.CurrentManagedThreadId);
     }
 
-    internal override void OnMessage(IUIThread.IMessage message)
+    internal override void OnMessage(IWindowManager.IMessage message)
     {
         Logger.LogWithMsg(LogLevel.Trace, "OnMessage", HWND, message, Environment.CurrentManagedThreadId);
 
@@ -341,7 +341,7 @@ internal sealed class SubClassNativeWindow : NativeWindowBase
         return $"SubClassNativeWindow[HWND:{HWND}]";
     }
 
-    internal override void OnMessage(IUIThread.IMessage message)
+    internal override void OnMessage(IWindowManager.IMessage message)
     {
         Logger.LogWithMsg(LogLevel.Trace, "OnMessage", HWND, message, Environment.CurrentManagedThreadId);
 
