@@ -12,7 +12,7 @@ public sealed class UIThreadFactory : IUIThreadFactory
     private readonly IConfiguration _configuration;
     private bool _disposed;
 
-    private readonly ConcurrentBag<UIThread> _uiThreadBag = [];
+    private readonly ConcurrentBag<UIThreadRunner> _uiThreadBag = [];
 
     public UIThreadFactory(
         IConfiguration configuration,
@@ -86,25 +86,27 @@ public sealed class UIThreadFactory : IUIThreadFactory
         _logger.LogWithLine(LogLevel.Trace, "DisposeAsync end", Environment.CurrentManagedThreadId);
     }
 
-    public async Task<IUIThread> StartAsync(
-        IUIThread.OnStop? onStop = default,
-        IUIThread.OnUnhandledException? onUnhandledException = default
+    public async Task<IUIThreadOperator> StartAsync(
+        IUIThreadOperator.OnStop? onStop = default,
+        IUIThreadOperator.OnUnhandledException? onUnhandledException = default
     )
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         _logger.LogWithLine(LogLevel.Information, "StartAsync", Environment.CurrentManagedThreadId);
-        var tcs = new TaskCompletionSource(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+        var tcs = new TaskCompletionSource<IUIThreadOperator>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var uiThread = new UIThread(
+        var uiThreadRunner = new UIThreadRunner(
             _loggerFactory,
             _configuration,
             tcs, 
             onStop, 
             onUnhandledException
         );
-        await tcs.Task;
-        _uiThreadBag.Add(uiThread);
+        var uiThread = await tcs.Task;
+ 
+        _uiThreadBag.Add(uiThreadRunner);
+        
         return uiThread;
     }
 }

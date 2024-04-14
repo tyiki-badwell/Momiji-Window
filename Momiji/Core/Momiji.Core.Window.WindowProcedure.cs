@@ -1,12 +1,9 @@
 ﻿using System.ComponentModel;
 using System.Runtime.ExceptionServices;
-using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using Momiji.Core.Buffer;
-using Momiji.Internal.Debug;
 using Momiji.Internal.Log;
 using Momiji.Internal.Util;
-using Kernel32 = Momiji.Interop.Kernel32.NativeMethods;
 using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
@@ -84,8 +81,6 @@ internal sealed class WindowProcedure : IWindowProcedure, IDisposable
 
         _onMessage = onMessage;
         _onThreadMessage = onThreadMessage;
-
-        Setup();
     }
 
     ~WindowProcedure()
@@ -120,41 +115,6 @@ internal sealed class WindowProcedure : IWindowProcedure, IDisposable
     {
         _logger.LogWithLine(LogLevel.Trace, "OnInactivated", Environment.CurrentManagedThreadId);
         //TODO メッセージキューを吐き出しきる
-    }
-
-    private void Setup()
-    {
-        WindowDebug.CheckIntegrityLevel(_loggerFactory);
-        WindowDebug.CheckDesktop(_loggerFactory);
-        WindowDebug.CheckGetProcessInformation(_loggerFactory);
-
-        {
-            var result = User32.IsGUIThread(true);
-            if (!result)
-            {
-                var error = new Win32Exception();
-                throw error;
-            }
-        }
-
-        { //メッセージキューが無ければ作られるハズ
-            var result =
-                User32.GetQueueStatus(
-                    0x04FF //QS_ALLINPUT
-                );
-            var error = new Win32Exception();
-            _logger.LogWithError(LogLevel.Information, $"GetQueueStatus {result}", error.ToString(), Environment.CurrentManagedThreadId);
-        }
-
-        {
-            var si = new Kernel32.STARTUPINFOW()
-            {
-                cb = Marshal.SizeOf<Kernel32.STARTUPINFOW>()
-            };
-            Kernel32.GetStartupInfoW(ref si);
-            var error = new Win32Exception();
-            _logger.LogWithError(LogLevel.Information, $"GetStartupInfoW [dwFlags:{si.dwFlags}][wShowWindow:{si.wShowWindow}]", error.ToString(), Environment.CurrentManagedThreadId);
-        }
     }
 
     public nint SendMessage(

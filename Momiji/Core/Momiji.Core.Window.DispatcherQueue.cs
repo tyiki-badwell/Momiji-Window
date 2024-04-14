@@ -26,12 +26,12 @@ internal sealed class DispatcherQueue : IDispatcherQueue, IDisposable
 
     internal WaitHandle WaitHandle => _queueEvent.WaitHandle;
 
-    private readonly IUIThread.OnUnhandledException? _onUnhandledException;
+    private readonly IUIThreadOperator.OnUnhandledException? _onUnhandledException;
 
     internal DispatcherQueue(
         ILoggerFactory loggerFactory,
         IUIThreadChecker uiThreadChecker,
-        IUIThread.OnUnhandledException? onUnhandledException = default
+        IUIThreadOperator.OnUnhandledException? onUnhandledException = default
     )
     {
         _loggerFactory = loggerFactory;

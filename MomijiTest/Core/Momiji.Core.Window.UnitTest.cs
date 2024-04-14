@@ -65,7 +65,7 @@ public class WindowUnitTest : IDisposable
             .AddJsonFile("appsettings.json")
             .Build();
 
-        var section = configuration.GetSection("Momiji.Core.Window.UIThread");
+        var section = configuration.GetSection("Momiji.Core.Window.WindowManager");
 
         if (cs != 0)
         {
@@ -368,9 +368,9 @@ public class WindowUnitTest : IDisposable
                     _logger.LogInformation(exception, $"Åöthread:[{Environment.CurrentManagedThreadId:X}] on stop  [cde:{cde.CurrentCount}]===============================[{SynchronizationContext.Current}]");
 
                     //exceptionÇ™óàÇΩÇÁNG
-                    Assert.IsNotNull(exception);
+                    Assert.IsNull(exception);
 
-                    _logger.LogInformation(exception, $"Åöthread:[{Environment.CurrentManagedThreadId:X}] on stop end [cde:{cde.CurrentCount}]===============================[{SynchronizationContext.Current}]");
+                    _logger.LogInformation($"Åöthread:[{Environment.CurrentManagedThreadId:X}] on stop end [cde:{cde.CurrentCount}]===============================[{SynchronizationContext.Current}]");
                 },
                 (exception) =>
                 {
@@ -383,7 +383,7 @@ public class WindowUnitTest : IDisposable
                         cde.Signal();
                     }
 
-                    _logger.LogInformation(exception, $"Åöthread:[{Environment.CurrentManagedThreadId:X}] on error end [cde:{cde.CurrentCount}]===============================[{SynchronizationContext.Current}]");
+                    _logger.LogInformation($"Åöthread:[{Environment.CurrentManagedThreadId:X}] on error end [cde:{cde.CurrentCount}]===============================[{SynchronizationContext.Current}]");
                     return true;
                 }
             );

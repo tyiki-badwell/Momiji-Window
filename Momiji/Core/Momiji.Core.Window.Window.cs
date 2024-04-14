@@ -8,7 +8,14 @@ using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
-internal abstract class NativeWindowBase : IWindow, IDisposable
+internal interface IWindowInternal : IWindow, IDisposable
+{
+    User32.HWND HWND { set; get; }
+
+    void OnMessage(IWindowManager.IMessage message);
+}
+
+internal abstract class NativeWindowBase : IWindowInternal
 {
     private readonly ILoggerFactory _loggerFactory;
 
@@ -16,7 +23,7 @@ internal abstract class NativeWindowBase : IWindow, IDisposable
 
     protected WindowManager WindowManager { get; }
 
-    internal User32.HWND HWND { set; get; }
+    public User32.HWND HWND { set; get; }
     public nint Handle => HWND.Handle;
 
     internal NativeWindowBase(
@@ -49,23 +56,11 @@ internal abstract class NativeWindowBase : IWindow, IDisposable
         return $"NativeWindow[HWND:{HWND}]";
     }
 
-    internal abstract void OnMessage(IWindowManager.IMessage message);
+    public abstract void OnMessage(IWindowManager.IMessage message);
 
     public async ValueTask<TResult> DispatchAsync<TResult>(Func<IWindow, TResult> func)
     {
         return await WindowManager.DispatchAsync(func, this);
-    }
-
-    public bool Close()
-    {
-        Logger.LogWithHWnd(LogLevel.Information, "Close", HWND, Environment.CurrentManagedThreadId);
-        SendMessage(
-            0x0010, //WM_CLOSE
-            nint.Zero,
-            nint.Zero
-        );
-
-        return true;
     }
 
     public nint SendMessage(
@@ -258,7 +253,7 @@ internal sealed class NativeWindow : NativeWindowBase
         Logger.LogWithHWnd(LogLevel.Information, "CreateWindow end", HWND, Environment.CurrentManagedThreadId);
     }
 
-    internal override void OnMessage(IWindowManager.IMessage message)
+    public override void OnMessage(IWindowManager.IMessage message)
     {
         Logger.LogWithMsg(LogLevel.Trace, "OnMessage", HWND, message, Environment.CurrentManagedThreadId);
 
@@ -341,7 +336,7 @@ internal sealed class SubClassNativeWindow : NativeWindowBase
         return $"SubClassNativeWindow[HWND:{HWND}]";
     }
 
-    internal override void OnMessage(IWindowManager.IMessage message)
+    public override void OnMessage(IWindowManager.IMessage message)
     {
         Logger.LogWithMsg(LogLevel.Trace, "OnMessage", HWND, message, Environment.CurrentManagedThreadId);
 

@@ -11,7 +11,7 @@ namespace Momiji.Core.Window;
 public static class IUIThreadExtensions
 {
     public static IWindow CreateWindow(
-        this IUIThread uiThread,
+        this IUIThreadOperator uiThread,
         string windowTitle,
         IWindow? parent = default,
         string className = "",
@@ -19,13 +19,51 @@ public static class IUIThreadExtensions
         IWindowManager.OnMessage? onMessageAfter = default
     )
     {
-        return uiThread.DispatchAsync((manager) => manager.CreateWindow(windowTitle, parent, className, onMessage, onMessageAfter)).AsTask().GetAwaiter().GetResult();
+        return uiThread.CreateWindowAsync(
+            windowTitle,
+            parent,
+            className,
+            onMessage,
+            onMessageAfter
+        ).AsTask().GetAwaiter().GetResult();
     }
 
+    public static async ValueTask<IWindow> CreateWindowAsync(
+        this IUIThreadOperator uiThread,
+        string windowTitle,
+        IWindow? parent = default,
+        string className = "",
+        IWindowManager.OnMessage? onMessage = default,
+        IWindowManager.OnMessage? onMessageAfter = default
+    )
+    {
+        return await uiThread.DispatchAsync(
+            (manager) => 
+            manager.CreateWindow(
+                windowTitle, 
+                parent, 
+                className, 
+                onMessage, 
+                onMessageAfter
+            )
+        );
+    }
 }
+
 public static class IWindowExtensions
 {
-    public static ValueTask<bool> MoveAsync(
+    public static nint Close(
+        this IWindow window
+    )
+    {
+        return window.SendMessage(
+            0x0010, //WM_CLOSE
+            nint.Zero,
+            nint.Zero
+        );
+    }
+
+    public static bool Move(
         this IWindow window,
         int x,
         int y,
@@ -34,16 +72,34 @@ public static class IWindowExtensions
         bool repaint
     )
     {
-        return window.DispatchAsync((window) =>
-        {
-            return ((NativeWindow)window).MoveImpl(
+        return window.MoveAsync(
+            x,
+            y,
+            width,
+            height,
+            repaint
+        ).AsTask().GetAwaiter().GetResult();
+    }
+
+    public static async ValueTask<bool> MoveAsync(
+        this IWindow window,
+        int x,
+        int y,
+        int width,
+        int height,
+        bool repaint
+    )
+    {
+        return await window.DispatchAsync(
+            (window) =>
+            ((NativeWindow)window).MoveImpl(
                 x,
                 y,
                 width,
                 height,
                 repaint
-            );
-        });
+            )
+        );
     }
 
     private static bool MoveImpl(
@@ -74,15 +130,25 @@ public static class IWindowExtensions
         return result;
     }
 
-    public static ValueTask<bool> ShowAsync(
+    public static bool Show(
         this IWindow window,
         int cmdShow
     )
     {
-        return window.DispatchAsync((window) =>
-        {
-            return ((NativeWindow)window).ShowImpl(cmdShow);
-        });
+        return window.ShowAsync(
+            cmdShow
+        ).AsTask().GetAwaiter().GetResult();
+    }
+
+    public static async ValueTask<bool> ShowAsync(
+        this IWindow window,
+        int cmdShow
+    )
+    {
+        return await window.DispatchAsync(
+            (window) =>
+            ((NativeWindow)window).ShowImpl(cmdShow)
+        );
     }
 
     private static bool ShowImpl(
@@ -120,15 +186,25 @@ public static class IWindowExtensions
         return result;
     }
 
-    public static ValueTask<bool> SetWindowStyleAsync(
+    public static bool SetWindowStyle(
         this IWindow window,
         int style
     )
     {
-        return window.DispatchAsync((window) =>
-        {
-            return ((NativeWindow)window).SetWindowStyleImpl(style);
-        });
+        return window.SetWindowStyleAsync(
+            style
+        ).AsTask().GetAwaiter().GetResult();
+    }
+
+    public static async ValueTask<bool> SetWindowStyleAsync(
+        this IWindow window,
+        int style
+    )
+    {
+        return await window.DispatchAsync(
+            (window) =>
+            ((NativeWindow)window).SetWindowStyleImpl(style)
+        );
     }
 
     private static bool SetWindowStyleImpl(

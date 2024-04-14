@@ -28,10 +28,10 @@ internal sealed class WindowManager : IWindowManager, IDisposable
 
     public bool IsEmpty => _windowMap.IsEmpty;
 
-    private readonly ConcurrentDictionary<User32.HWND, NativeWindowBase> _windowMap = [];
-    private readonly Stack<NativeWindowBase> _windowStack = [];
+    private readonly ConcurrentDictionary<User32.HWND, IWindowInternal> _windowMap = [];
+    private readonly Stack<IWindowInternal> _windowStack = [];
 
-    private readonly ConcurrentDictionary<int, WeakReference<NativeWindowBase>> _childIdMap = [];
+    private readonly ConcurrentDictionary<int, WeakReference<IWindowInternal>> _childIdMap = [];
     private int childId = 0;
 
     private readonly IUIThreadFactory.Param _param;
@@ -59,7 +59,7 @@ internal sealed class WindowManager : IWindowManager, IDisposable
         WindowClassManager = new WindowClassManager(_loggerFactory, WindowProcedure);
 
         _param = new IUIThreadFactory.Param();
-        configuration.GetSection($"{typeof(UIThread).FullName}").Bind(_param);
+        configuration.GetSection($"{typeof(WindowManager).FullName}").Bind(_param);
     }
 
     ~WindowManager()
@@ -97,12 +97,12 @@ internal sealed class WindowManager : IWindowManager, IDisposable
     internal readonly ref struct SwitchThreadDpiAwarenessContextPerMonitorAwareV2RAII
     {
         private readonly ILogger _logger;
-        private readonly NativeWindowBase _window;
+        private readonly IWindowInternal _window;
 
         private readonly User32.DPI_AWARENESS_CONTEXT _oldContext;
 
         public SwitchThreadDpiAwarenessContextPerMonitorAwareV2RAII(
-            NativeWindowBase window,
+            IWindowInternal window,
             ILogger logger
         )
         {
@@ -127,7 +127,7 @@ internal sealed class WindowManager : IWindowManager, IDisposable
         }
     }
 
-    private TResult InvokeWithContext<TResult>(Func<IWindow, TResult> func, NativeWindowBase window)
+    private TResult InvokeWithContext<TResult>(Func<IWindow, TResult> func, IWindowInternal window)
     {
         //TODO スレッドセーフになっているか要確認(再入しても問題ないなら気にしない)
         //TODO 何かのコンテキストに移す
@@ -241,7 +241,7 @@ internal sealed class WindowManager : IWindowManager, IDisposable
         return window;
     }
 
-    internal async ValueTask<TResult> DispatchAsync<TResult>(Func<IWindow, TResult> item, NativeWindowBase window)
+    internal async ValueTask<TResult> DispatchAsync<TResult>(Func<IWindow, TResult> item, IWindowInternal window)
     {
         _logger.LogWithLine(LogLevel.Trace, "DispatchAsync", Environment.CurrentManagedThreadId);
 
@@ -457,7 +457,7 @@ internal sealed class WindowManager : IWindowManager, IDisposable
         }
     }
 
-    private void WndProcAfter(NativeWindowBase window, IWindowManager.IMessage message)
+    private void WndProcAfter(IWindowInternal window, IWindowManager.IMessage message)
     {
         _logger.LogWithHWnd(LogLevel.Trace, $"WndProcAfter [{SynchronizationContext.Current}]", window.HWND, Environment.CurrentManagedThreadId);
 
@@ -475,13 +475,13 @@ internal sealed class WindowManager : IWindowManager, IDisposable
         }
     }
 
-    private void OnWM_NCCREATE_After(NativeWindowBase window)
+    private void OnWM_NCCREATE_After(IWindowInternal window)
     {
         //作成に成功してからWindowMapに入れる
         Add(window);
     }
 
-    private void OnWM_NCDESTROY_After(NativeWindowBase window)
+    private void OnWM_NCDESTROY_After(IWindowInternal window)
     {
         Remove(window);
     }
@@ -521,7 +521,7 @@ internal sealed class WindowManager : IWindowManager, IDisposable
         _logger.LogTrace("================================= PrintWindowMap end");
     }
 
-    private void Add(NativeWindowBase window)
+    private void Add(IWindowInternal window)
     {
         if (_windowMap.TryAdd(window.HWND, window))
         {
@@ -534,7 +534,7 @@ internal sealed class WindowManager : IWindowManager, IDisposable
         }
     }
 
-    private void Remove(NativeWindowBase window)
+    private void Remove(IWindowInternal window)
     {
         if (_windowMap.TryRemove(window.HWND, out var window_))
         {
@@ -547,7 +547,7 @@ internal sealed class WindowManager : IWindowManager, IDisposable
         }
     }
 
-    private bool FindWindow(User32.HWND hwnd, [MaybeNullWhen(false)] out NativeWindowBase window)
+    private bool FindWindow(User32.HWND hwnd, [MaybeNullWhen(false)] out IWindowInternal window)
     {
         if (_windowMap.TryGetValue(hwnd, out window))
         {
@@ -557,7 +557,7 @@ internal sealed class WindowManager : IWindowManager, IDisposable
         return false;
     }
 
-    private bool TryGetWindow(User32.HWND hwnd, [MaybeNullWhen(false)] out NativeWindowBase window)
+    private bool TryGetWindow(User32.HWND hwnd, [MaybeNullWhen(false)] out IWindowInternal window)
     {
         PrintWindowStack();
         PrintWindowMap();

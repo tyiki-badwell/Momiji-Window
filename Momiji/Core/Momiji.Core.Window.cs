@@ -21,13 +21,13 @@ public interface IUIThreadFactory : IDisposable, IAsyncDisposable
         }
     }
 
-    Task<IUIThread> StartAsync(
-        IUIThread.OnStop? onStop = default,
-        IUIThread.OnUnhandledException? onUnhandledException = default
+    Task<IUIThreadOperator> StartAsync(
+        IUIThreadOperator.OnStop? onStop = default,
+        IUIThreadOperator.OnUnhandledException? onUnhandledException = default
     );
 }
 
-public interface IUIThread : IDisposable, IAsyncDisposable
+public interface IUIThreadOperator : IDisposable, IAsyncDisposable
 {
     delegate void OnStop(Exception? exception);
     delegate bool OnUnhandledException(Exception exception);
@@ -64,8 +64,6 @@ public interface IWindow
 {
     nint Handle { get; }
     ValueTask<T> DispatchAsync<T>(Func<IWindow, T> func);
-
-    bool Close();
 
     nint SendMessage(
         int nMsg,

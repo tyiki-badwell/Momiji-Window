@@ -65,8 +65,8 @@ public class Worker : BackgroundService
 
         using var scope = _serviceScopeFactory.CreateScope();
 
-        var a = scope.ServiceProvider.GetRequiredService<IUIThread>();
-        var b = scope.ServiceProvider.GetRequiredService<IUIThread>();
+        var a = scope.ServiceProvider.GetRequiredService<IUIThreadOperator>();
+        var b = scope.ServiceProvider.GetRequiredService<IUIThreadOperator>();
 
         var windowA = a.CreateWindow("windowA", onMessage: async(sender, message) =>
         {
@@ -179,16 +179,16 @@ public class Worker : BackgroundService
             return 0;
         });
 
-        await buttonA.MoveAsync(10, 10, 200, 80, true);
-        await textA.MoveAsync(10, 300, 200, 80, true);
+        buttonA.Move(10, 10, 200, 80, true);
+        textA.Move(10, 300, 200, 80, true);
 
-        await buttonC.MoveAsync(300, 100, 200, 80, true);
+        buttonC.Move(300, 100, 200, 80, true);
 
-        await windowA.ShowAsync(1);
+        windowA.Show(1);
 
-        await buttonB.MoveAsync(10, 10, 200, 80, true);
-        await textB.MoveAsync(10, 300, 200, 80, true);
-        await windowB.ShowAsync(1);
+        buttonB.Move(10, 10, 200, 80, true);
+        textB.Move(10, 300, 200, 80, true);
+        windowB.Show(1);
 
         while (!stoppingToken.IsCancellationRequested)
         {

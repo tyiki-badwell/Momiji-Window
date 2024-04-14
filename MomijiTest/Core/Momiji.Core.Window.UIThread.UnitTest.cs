@@ -47,69 +47,95 @@ public class UIThreadTest : IDisposable
         return configuration;
     }
 
-    private class TestException : Exception
+    [TestMethod]
+    public async Task TestDispatchAsyncOK()
     {
-    
+        using var thread = new UIThread(_loggerFactory, CreateConfiguration());
+
+        using var cts = new CancellationTokenSource();
+        var tcs = new TaskCompletionSource<IUIThreadOperator>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var task = Task.Run(() =>
+        {
+            thread.RunMessageLoop(tcs, cts.Token);
+            _logger.LogInformation("loop end");
+        });
+
+        using var uiThread = await tcs.Task;
+
+        var result = await await Task.Run(async () =>
+        {
+            return await uiThread.DispatchAsync(async (manager) =>
+            {
+                //immidiate mode
+                var result = await uiThread.DispatchAsync((manager) => 1);
+                return 1 + result;
+            });
+        });
+
+        Assert.AreEqual(2, result);
+
+        cts.Cancel();
+        await task;
     }
 
     [TestMethod]
-    public async Task TestConstruct()
+    public async Task TestDispatchAsyncFail()
     {
-        var tcs = new TaskCompletionSource(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
-
-        using var uiThread = new UIThread(
-            _loggerFactory,
-            CreateConfiguration(),
-            tcs
-        );
-
-        await tcs.Task;
-
-        var result = await uiThread.DispatchAsync((manager) => { return 999; });
-        Assert.AreEqual(999, result);
-    }
-
-    [TestMethod]
-    public async Task TestConstructFail()
-    {
-        var tcs = new TaskCompletionSource(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
-        tcs.SetCanceled();
-
-        using var mre = new ManualResetEventSlim(false);
-
-        using var uiThread = new UIThread(
-            _loggerFactory,
-            CreateConfiguration(),
-            tcs,
-            (e) => {
-                _logger.LogInformation(e, "error occurred");
-                mre.Set();
-            }
-        );
+        using var thread = new UIThread(_loggerFactory, CreateConfiguration());
 
         try
         {
-            await tcs.Task;
-            Assert.Fail();
-        }
-        catch (TaskCanceledException e)
-        {
-            //OK
-            _logger.LogInformation(e, "error occurred");
-        }
+            using var cts = new CancellationTokenSource();
+            var tcs = new TaskCompletionSource<IUIThreadOperator>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 
-        mre.Wait();
+            var task = Task.Run(() =>
+            {
+                thread.RunMessageLoop(tcs, cts.Token);
+                _logger.LogInformation("loop end");
+            });
 
-        try
-        {
-            await uiThread.DispatchAsync((manager) => { return 0; });
+            using var uiThread = await tcs.Task;
+
+            cts.Cancel();
+            await task;
+
+            var result = await Task.Run(async () =>
+            {
+                return await uiThread.DispatchAsync((manager) => 1);
+            });
+
             Assert.Fail();
         }
         catch (InvalidOperationException e)
         {
-            //OK
-            _logger.LogInformation(e, "error occurred");
+            _logger.LogInformation(e, $"Åöthread:[{Environment.CurrentManagedThreadId:X}] error end");
         }
     }
 
+    [TestMethod]
+    public async Task TestMessageLoopForceEnd()
+    {
+        Task? task = null;
+
+        {
+            var thread = new UIThread(_loggerFactory, CreateConfiguration());
+
+            var tcs = new TaskCompletionSource<IUIThreadOperator>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+
+            task = Task.Run(() =>
+            {
+                thread.RunMessageLoop(tcs, default);
+                _logger.LogInformation("loop end");
+            });
+
+            using var uiThread = await tcs.Task;
+            thread.Dispose();
+        }
+
+        if (task != default)
+        {
+            await task;
+        }
+    }
 }
