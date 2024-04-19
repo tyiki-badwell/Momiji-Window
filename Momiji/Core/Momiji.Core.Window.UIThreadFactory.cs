@@ -1,5 +1,4 @@
 ﻿using System.Collections.Concurrent;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Momiji.Internal.Log;
 
@@ -9,23 +8,18 @@ public sealed class UIThreadFactory : IUIThreadFactory
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
-    private readonly IConfiguration _configuration;
     private bool _disposed;
 
     private readonly ConcurrentBag<UIThreadRunner> _uiThreadBag = [];
 
     public UIThreadFactory(
-        IConfiguration configuration,
         ILoggerFactory loggerFactory
     )
     {
-        ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(loggerFactory);
 
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<UIThreadFactory>();
-
-        _configuration = configuration;
     }
 
     ~UIThreadFactory()
@@ -86,19 +80,18 @@ public sealed class UIThreadFactory : IUIThreadFactory
         _logger.LogWithLine(LogLevel.Trace, "DisposeAsync end", Environment.CurrentManagedThreadId);
     }
 
-    public async Task<IUIThreadOperator> StartAsync(
-        IUIThreadOperator.OnStop? onStop = default,
-        IUIThreadOperator.OnUnhandledException? onUnhandledException = default
+    public async Task<IUIThread> StartAsync(
+        IUIThreadFactory.OnStop? onStop = default,
+        IUIThreadFactory.OnUnhandledException? onUnhandledException = default
     )
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         _logger.LogWithLine(LogLevel.Information, "StartAsync", Environment.CurrentManagedThreadId);
-        var tcs = new TaskCompletionSource<IUIThreadOperator>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+        var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 
         var uiThreadRunner = new UIThreadRunner(
             _loggerFactory,
-            _configuration,
             tcs, 
             onStop, 
             onUnhandledException

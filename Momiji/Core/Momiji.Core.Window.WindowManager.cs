@@ -2,7 +2,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Momiji.Internal.Debug;
 using Momiji.Internal.Log;
@@ -12,7 +11,15 @@ using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
-internal sealed class WindowManager : IWindowManager, IDisposable
+internal interface IWindowManagerInternal : IWindowManager, IDisposable
+{
+    IWindowClassManager WindowClassManager { get; }
+    IWindowProcedure WindowProcedure { get; }
+    ValueTask<TResult> DispatchAsync<TResult>(Func<IWindow, TResult> item, IWindowInternal window);
+    int GenerateChildId(IWindowInternal window);
+}
+
+internal sealed class WindowManager : IWindowManagerInternal
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -22,11 +29,11 @@ internal sealed class WindowManager : IWindowManager, IDisposable
 
     private IDispatcherQueue DispatcherQueue { get; }
 
-    internal IWindowClassManager WindowClassManager { get; }
-    internal IWindowProcedure WindowProcedure { get; }
+    public IWindowClassManager WindowClassManager { get; }
+    public IWindowProcedure WindowProcedure { get; }
     private WindowManagerSynchronizationContext WindowContextSynchronizationContext { get; }
 
-    public bool IsEmpty => _windowMap.IsEmpty;
+    internal bool IsEmpty => _windowMap.IsEmpty;
 
     private readonly ConcurrentDictionary<User32.HWND, IWindowInternal> _windowMap = [];
     private readonly Stack<IWindowInternal> _windowStack = [];
@@ -34,11 +41,8 @@ internal sealed class WindowManager : IWindowManager, IDisposable
     private readonly ConcurrentDictionary<int, WeakReference<IWindowInternal>> _childIdMap = [];
     private int childId = 0;
 
-    private readonly IUIThreadFactory.Param _param;
-
     internal WindowManager(
         ILoggerFactory loggerFactory,
-        IConfiguration configuration,
         IUIThreadChecker uiThreadChecker,
         IDispatcherQueue dispatcherQueue
     )
@@ -57,9 +61,6 @@ internal sealed class WindowManager : IWindowManager, IDisposable
         WindowProcedure = new WindowProcedure(_loggerFactory, uiThreadChecker, OnMessage, OnThreadMessage);
 
         WindowClassManager = new WindowClassManager(_loggerFactory, WindowProcedure);
-
-        _param = new IUIThreadFactory.Param();
-        configuration.GetSection($"{typeof(WindowManager).FullName}").Bind(_param);
     }
 
     ~WindowManager()
@@ -152,14 +153,14 @@ internal sealed class WindowManager : IWindowManager, IDisposable
         }
     }
 
-    internal int GenerateChildId(NativeWindow window)
+    public int GenerateChildId(IWindowInternal window)
     {
         var id = Interlocked.Increment(ref childId);
         _childIdMap.TryAdd(id, new(window));
         return id;
     }
 
-    public void CloseAll()
+    internal void CloseAll()
     {
         //TODO SendMessageに行くのでUIスレッドで呼び出す必要は無いが、統一すべき？
         foreach (var item in _windowMap)
@@ -211,37 +212,23 @@ internal sealed class WindowManager : IWindowManager, IDisposable
     }
 
     public IWindow CreateWindow(
-        string windowTitle,
-        IWindow? parent,
-        string className,
-        IWindowManager.OnMessage? onMessage,
-        IWindowManager.OnMessage? onMessageAfter
+        IWindowManager.CreateWindowParameter parameter
     )
     {
         //UIスレッドで呼び出す必要アリ
         UIThreadChecker.ThrowIfCalledFromOtherThread();
 
-        var classStyle = (className == string.Empty)
-                ? (User32.WNDCLASSEX.CS)_param.CS
-                : User32.WNDCLASSEX.CS.NONE
-                ;
-
         var window =
             new NativeWindow(
                 _loggerFactory,
                 this,
-                className,
-                classStyle,
-                windowTitle,
-                (parent as NativeWindow),
-                onMessage,
-                onMessageAfter
+                parameter
             );
 
         return window;
     }
 
-    internal async ValueTask<TResult> DispatchAsync<TResult>(Func<IWindow, TResult> item, IWindowInternal window)
+    public async ValueTask<TResult> DispatchAsync<TResult>(Func<IWindow, TResult> item, IWindowInternal window)
     {
         _logger.LogWithLine(LogLevel.Trace, "DispatchAsync", Environment.CurrentManagedThreadId);
 

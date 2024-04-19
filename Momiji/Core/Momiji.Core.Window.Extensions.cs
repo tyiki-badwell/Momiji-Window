@@ -11,40 +11,22 @@ namespace Momiji.Core.Window;
 public static class IUIThreadExtensions
 {
     public static IWindow CreateWindow(
-        this IUIThreadOperator uiThread,
-        string windowTitle,
-        IWindow? parent = default,
-        string className = "",
-        IWindowManager.OnMessage? onMessage = default,
-        IWindowManager.OnMessage? onMessageAfter = default
+        this IUIThread uiThread,
+        IWindowManager.CreateWindowParameter parameter
     )
     {
-        return uiThread.CreateWindowAsync(
-            windowTitle,
-            parent,
-            className,
-            onMessage,
-            onMessageAfter
-        ).AsTask().GetAwaiter().GetResult();
+        return uiThread.CreateWindowAsync(parameter).AsTask().GetAwaiter().GetResult();
     }
 
     public static async ValueTask<IWindow> CreateWindowAsync(
-        this IUIThreadOperator uiThread,
-        string windowTitle,
-        IWindow? parent = default,
-        string className = "",
-        IWindowManager.OnMessage? onMessage = default,
-        IWindowManager.OnMessage? onMessageAfter = default
+        this IUIThread uiThread,
+        IWindowManager.CreateWindowParameter parameter
     )
     {
         return await uiThread.DispatchAsync(
             (manager) => 
             manager.CreateWindow(
-                windowTitle, 
-                parent, 
-                className, 
-                onMessage, 
-                onMessageAfter
+                parameter
             )
         );
     }

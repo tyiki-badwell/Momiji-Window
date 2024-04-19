@@ -13,26 +13,19 @@ public class WindowException : Exception
 
 public interface IUIThreadFactory : IDisposable, IAsyncDisposable
 {
-    public record class Param
-    {
-        public int CS
-        {
-            get; init;
-        }
-    }
-
-    Task<IUIThreadOperator> StartAsync(
-        IUIThreadOperator.OnStop? onStop = default,
-        IUIThreadOperator.OnUnhandledException? onUnhandledException = default
-    );
-}
-
-public interface IUIThreadOperator : IDisposable, IAsyncDisposable
-{
     delegate void OnStop(Exception? exception);
     delegate bool OnUnhandledException(Exception exception);
 
-    ValueTask<TResult> DispatchAsync<TResult>(Func<IWindowManager, TResult> func);
+    Task<IUIThread> StartAsync(
+        OnStop? onStop = default,
+        OnUnhandledException? onUnhandledException = default
+    );
+}
+
+public interface IUIThread : IDisposable, IAsyncDisposable
+{
+    ValueTask CancelAsync();
+    ValueTask<TResult> DispatchAsync<TResult>(Func<IWindowManager, TResult> item);
 
 }
 
@@ -50,12 +43,28 @@ public interface IWindowManager
 
     delegate void OnMessage(IWindow sender, IMessage message);
 
+    struct CreateWindowParameter
+    {
+        public string windowTitle = "";
+        public IWindow? parent = default;
+        public string className = "";
+        public int classStyle = 0;
+        public int exStyle = 0;
+        public int style = 0;
+        public int x = unchecked((int)0x80000000U);
+        public int y = unchecked((int)0x80000000U);
+        public int width = unchecked((int)0x80000000U);
+        public int height = unchecked((int)0x80000000U);
+        public OnMessage? onMessage = default;
+        public OnMessage? onMessageAfter = default;
+
+        public CreateWindowParameter()
+        {
+        }
+    }
+
     IWindow CreateWindow(
-        string windowTitle,
-        IWindow? parent = default,
-        string className = "",
-        OnMessage? onMessage = default,
-        OnMessage? onMessageAfter = default
+        CreateWindowParameter parameter
     );
 
 }

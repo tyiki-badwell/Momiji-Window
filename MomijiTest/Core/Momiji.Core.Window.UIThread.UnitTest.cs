@@ -50,10 +50,10 @@ public class UIThreadTest : IDisposable
     [TestMethod]
     public async Task TestDispatchAsyncOK()
     {
-        using var thread = new UIThread(_loggerFactory, CreateConfiguration());
+        using var thread = new UIThread(_loggerFactory);
 
         using var cts = new CancellationTokenSource();
-        var tcs = new TaskCompletionSource<IUIThreadOperator>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+        var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 
         var task = Task.Run(() =>
         {
@@ -82,12 +82,12 @@ public class UIThreadTest : IDisposable
     [TestMethod]
     public async Task TestDispatchAsyncFail()
     {
-        using var thread = new UIThread(_loggerFactory, CreateConfiguration());
+        using var thread = new UIThread(_loggerFactory);
 
         try
         {
             using var cts = new CancellationTokenSource();
-            var tcs = new TaskCompletionSource<IUIThreadOperator>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+            var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 
             var task = Task.Run(() =>
             {
@@ -119,9 +119,9 @@ public class UIThreadTest : IDisposable
         Task? task = null;
 
         {
-            var thread = new UIThread(_loggerFactory, CreateConfiguration());
+            var thread = new UIThread(_loggerFactory);
 
-            var tcs = new TaskCompletionSource<IUIThreadOperator>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+            var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 
             task = Task.Run(() =>
             {

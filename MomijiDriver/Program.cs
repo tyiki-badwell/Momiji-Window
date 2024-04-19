@@ -65,97 +65,153 @@ public class Worker : BackgroundService
 
         using var scope = _serviceScopeFactory.CreateScope();
 
-        var a = scope.ServiceProvider.GetRequiredService<IUIThreadOperator>();
-        var b = scope.ServiceProvider.GetRequiredService<IUIThreadOperator>();
+        var a = scope.ServiceProvider.GetRequiredService<IUIThread>();
+        var b = scope.ServiceProvider.GetRequiredService<IUIThread>();
 
-        var windowA = a.CreateWindow("windowA", onMessage: async(sender, message) =>
+        var windowStyle = 0;
+        windowStyle = 0x10000000; //WS_VISIBLE
+        //windowStyle |= 0x80000000U; //WS_POPUP
+        windowStyle |= 0x00C00000; //WS_CAPTION
+        windowStyle |= 0x00080000; //WS_SYSMENU
+        windowStyle |= 0x00040000; //WS_THICKFRAME
+        windowStyle |= 0x00020000; //WS_MINIMIZEBOX
+        windowStyle |= 0x00010000; //WS_MAXIMIZEBOX
+
+        var childStyle = 0;
+        childStyle = 0x10000000; //WS_VISIBLE
+
+        var windowA = a.CreateWindow(new()
         {
-            //logger?.LogInformation($"   windowA:{message}");
-            switch (message.Msg)
+            windowTitle = "windowA",
+            classStyle = 0x00000020, 
+            style = windowStyle,
+            onMessage = async (sender, message) =>
             {
-                case 0x0210: //WM_PARENTNOTIFY
-                    //message.WParam 子のウインドウメッセージ
-                    //message.LParam 下位ワード　X座標／上位ワード　Y座標
-                    break;
+                //logger?.LogInformation($"   windowA:{message}");
+                switch (message.Msg)
+                {
+                    case 0x0210: //WM_PARENTNOTIFY
+                        //message.WParam 子のウインドウメッセージ
+                        //message.LParam 下位ワード　X座標／上位ワード　Y座標
+                        break;
 
-                case 0x0111: //WM_COMMAND
-                    //message.WParam 上位ワード　0：メニュー／1：アクセラレータ／その他：ボタン識別子　下位ワード　識別子
-                    //message.LParam ウインドウハンドル
+                    case 0x0111: //WM_COMMAND
+                        //message.WParam 上位ワード　0：メニュー／1：アクセラレータ／その他：ボタン識別子　下位ワード　識別子
+                        //message.LParam ウインドウハンドル
 
-                    _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] delay start ===============================");
-                    await Task.Delay(1000);
-                    _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] delay end ===============================");
+                        _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] delay start ===============================");
+                        await Task.Delay(1000);
+                        _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] delay end ===============================");
 
-                    break;
+                        break;
 
+                }
             }
         });
 
-        var windowB = b.CreateWindow("windowB");
+        var windowB = b.CreateWindow(new() { 
+            windowTitle = "windowB",
+            style = windowStyle,
+        });
 
-        var buttonA = a.CreateWindow("buttonA", windowA, "BUTTON", onMessage: (sender, message) =>
+        var buttonA = a.CreateWindow(new()
         {
-            _logger.LogInformation($"       buttonA:{message}");
-            switch (message.Msg)
+            windowTitle = "buttonA",
+            parent = windowA,
+            style = childStyle,
+            className = "BUTTON",
+            onMessage = (sender, message) =>
             {
-                case 0x0084: //WM_NCHITTEST
-                    //message.LParam 下位ワード　X座標／上位ワード　Y座標
-                    break;
-                case 0x0020: //WM_SETCURSOR
-                    //message.WParam カーソルを含むウィンドウへのハンドル
-                    //message.LParam 下位ワード　WM_NCHITTESTの戻り値／上位ワード　マウスウインドウメッセージ
-                    break;
-                case 0x0200: //WM_MOUSEMOVE
-                    //message.WParam 仮想キー
-                    //message.LParam 下位ワード　X座標／上位ワード　Y座標
-                    break;
-                case 0x0021: //WM_MOUSEACTIVATE
-                    //message.WParam トップレベルウインドウハンドル
-                    //message.LParam 下位ワード　WM_NCHITTESTの戻り値／上位ワード　マウスウインドウメッセージ
-                    break;
-                case 0x0201: //WM_LBUTTONDOWN
-                    //message.WParam 仮想キー
-                    //message.LParam 下位ワード　X座標／上位ワード　Y座標
-                    break;
-                case 0x0281: //WM_IME_SETCONTEXT
-                    //message.WParam ウインドウがアクティブなら1
-                    //message.LParam 表示オプション
-                    break;
-                case 0x0007: //WM_SETFOCUS
-                    //message.WParam フォーカスが移る前にフォーカスを持っていたウインドウハンドル
-                    break;
-                case 0x00F3: //BM_SETSTATE
-                    //message.WParam ボタンを強調表示するならtrue
-                    break;
-                case 0x0202: //WM_LBUTTONUP
-                    //message.WParam 仮想キー
-                    //message.LParam 下位ワード　X座標／上位ワード　Y座標
-                    break;
-                case 0x0215: //WM_CAPTURECHANGED
-                    //message.LParam マウスキャプチャしているウインドウハンドル
-                    break;
+                _logger.LogInformation($"       buttonA:{message}");
+                switch (message.Msg)
+                {
+                    case 0x0084: //WM_NCHITTEST
+                        //message.LParam 下位ワード　X座標／上位ワード　Y座標
+                        break;
+                    case 0x0020: //WM_SETCURSOR
+                        //message.WParam カーソルを含むウィンドウへのハンドル
+                        //message.LParam 下位ワード　WM_NCHITTESTの戻り値／上位ワード　マウスウインドウメッセージ
+                        break;
+                    case 0x0200: //WM_MOUSEMOVE
+                        //message.WParam 仮想キー
+                        //message.LParam 下位ワード　X座標／上位ワード　Y座標
+                        break;
+                    case 0x0021: //WM_MOUSEACTIVATE
+                        //message.WParam トップレベルウインドウハンドル
+                        //message.LParam 下位ワード　WM_NCHITTESTの戻り値／上位ワード　マウスウインドウメッセージ
+                        break;
+                    case 0x0201: //WM_LBUTTONDOWN
+                        //message.WParam 仮想キー
+                        //message.LParam 下位ワード　X座標／上位ワード　Y座標
+                        break;
+                    case 0x0281: //WM_IME_SETCONTEXT
+                        //message.WParam ウインドウがアクティブなら1
+                        //message.LParam 表示オプション
+                        break;
+                    case 0x0007: //WM_SETFOCUS
+                        //message.WParam フォーカスが移る前にフォーカスを持っていたウインドウハンドル
+                        break;
+                    case 0x00F3: //BM_SETSTATE
+                        //message.WParam ボタンを強調表示するならtrue
+                        break;
+                    case 0x0202: //WM_LBUTTONUP
+                        //message.WParam 仮想キー
+                        //message.LParam 下位ワード　X座標／上位ワード　Y座標
+                        break;
+                    case 0x0215: //WM_CAPTURECHANGED
+                        //message.LParam マウスキャプチャしているウインドウハンドル
+                        break;
 
+                }
             }
         });
 
-        var textA = a.CreateWindow("textA", windowA, "EDIT", onMessage: (sender, message) =>
+        var textA = a.CreateWindow(new()
         {
-            _logger.LogInformation($"       textA:{message}");
+            windowTitle = "textA",
+            parent = windowA,
+            style = childStyle,
+            className = "EDIT",
+            onMessage = (sender, message) =>
+            {
+                _logger.LogInformation($"       textA:{message}");
+            }
         });
 
-        var buttonB = b.CreateWindow("buttonB", windowB, "BUTTON", onMessage: (sender, message) =>
+        var buttonB = b.CreateWindow(new()
         {
-            _logger.LogInformation($"       buttonB:{message}");
+            windowTitle = "buttonB",
+            parent = windowB,
+            style = childStyle,
+            className = "BUTTON",
+            onMessage = (sender, message) =>
+            {
+                _logger.LogInformation($"       buttonB:{message}");
+            }
         });
-        var textB = b.CreateWindow("textB", windowB, "EDIT", onMessage: (sender, message) =>
+        var textB = b.CreateWindow(new()
         {
-            _logger.LogInformation($"       textB:{message}");
+            windowTitle = "textB",
+            parent = windowB,
+            style = childStyle,
+            className = "EDIT",
+            onMessage = (sender, message) =>
+            {
+                _logger.LogInformation($"       textB:{message}");
+            }
         });
 
         //BスレッドからAウインドウにボタン追加
-        var buttonC = b.CreateWindow("buttonC", windowA, "BUTTON", onMessage: (sender, message) =>
+        var buttonC = b.CreateWindow(new()
         {
-            _logger.LogInformation($"       buttonC:{message}");
+            windowTitle = "buttonC",
+            parent = windowA,
+            style = childStyle,
+            className = "BUTTON",
+            onMessage = (sender, message) =>
+            {
+                _logger.LogInformation($"       buttonC:{message}");
+            }
         });
 
         //WPFコンテンツを挿入する

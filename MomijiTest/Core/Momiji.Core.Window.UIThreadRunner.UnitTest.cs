@@ -55,11 +55,10 @@ public class UIThreadRunnerTest : IDisposable
     [TestMethod]
     public async Task TestConstruct()
     {
-        var tcs = new TaskCompletionSource<IUIThreadOperator>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+        var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 
         using var uiThreadRunner = new UIThreadRunner(
             _loggerFactory,
-            CreateConfiguration(),
             tcs
         );
 
@@ -72,14 +71,13 @@ public class UIThreadRunnerTest : IDisposable
     [TestMethod]
     public async Task TestConstructFail()
     {
-        var tcs = new TaskCompletionSource<IUIThreadOperator>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+        var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
         tcs.SetCanceled();
 
         using var mre = new ManualResetEventSlim(false);
 
         using var uiThreadRunner = new UIThreadRunner(
             _loggerFactory,
-            CreateConfiguration(),
             tcs,
             (e) => {
                 _logger.LogInformation(e, "error occurred");
@@ -117,13 +115,12 @@ public class UIThreadRunnerTest : IDisposable
     [TestMethod]
     public async Task TestErrorOnStop()
     {
-        var tcs = new TaskCompletionSource<IUIThreadOperator>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+        var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 
         try
         {
             using var uiThreadRunner = new UIThreadRunner(
                 _loggerFactory,
-                CreateConfiguration(),
                 tcs,
                 (e) =>
                 {

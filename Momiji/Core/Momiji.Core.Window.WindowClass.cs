@@ -45,8 +45,6 @@ internal sealed class WindowClass : IWindowClass, IDisposable
         _className = nameof(WindowClass) + className + Guid.NewGuid().ToString();
         _lpszClassName = new(_className, _logger);
 
-        //TODO csの排他設定チェック
-
         if (className == "")
         {
             _windowClass = new User32.WNDCLASSEX
@@ -96,6 +94,7 @@ internal sealed class WindowClass : IWindowClass, IDisposable
 
         if (classStyle != User32.WNDCLASSEX.CS.NONE)
         {
+            //TODO csの排他設定チェック
             _windowClass.style |= classStyle;
         }
 

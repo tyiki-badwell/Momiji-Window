@@ -1,6 +1,5 @@
 ﻿using System.ComponentModel;
 using System.Runtime.InteropServices;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Momiji.Core.Buffer;
 using Momiji.Internal.Debug;
@@ -10,7 +9,7 @@ using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
-internal sealed class UIThread : IDisposable, IAsyncDisposable
+internal sealed class UIThread : IUIThread
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -21,13 +20,12 @@ internal sealed class UIThread : IDisposable, IAsyncDisposable
     private bool _run;
 
     private UIThreadActivator UIThreadActivator { get; }
-    internal DispatcherQueue DispatcherQueue { get; }
-    internal WindowManager WindowManager { get; }
+    private DispatcherQueue DispatcherQueue { get; }
+    private WindowManager WindowManager { get; }
 
     internal UIThread(
         ILoggerFactory loggerFactory,
-        IConfiguration configuration,
-        IUIThreadOperator.OnUnhandledException? onUnhandledException = default
+        IUIThreadFactory.OnUnhandledException? onUnhandledException = default
     )
     {
         ArgumentNullException.ThrowIfNull(loggerFactory);
@@ -37,7 +35,7 @@ internal sealed class UIThread : IDisposable, IAsyncDisposable
 
         UIThreadActivator = new(_loggerFactory);
         DispatcherQueue = new(_loggerFactory, UIThreadActivator, onUnhandledException);
-        WindowManager = new(_loggerFactory, configuration, UIThreadActivator, DispatcherQueue);
+        WindowManager = new(_loggerFactory, UIThreadActivator, DispatcherQueue);
     }
 
     ~UIThread()
@@ -90,7 +88,7 @@ internal sealed class UIThread : IDisposable, IAsyncDisposable
         _logger.LogWithLine(LogLevel.Trace, "DisposeAsync end", Environment.CurrentManagedThreadId);
     }
 
-    internal async ValueTask CancelAsync()
+    public async ValueTask CancelAsync()
     {
         if (!_cts.IsCancellationRequested)
         {
@@ -122,8 +120,13 @@ internal sealed class UIThread : IDisposable, IAsyncDisposable
         }
     }
 
+    public async ValueTask<TResult> DispatchAsync<TResult>(Func<IWindowManager, TResult> func)
+    {
+        return await DispatcherQueue.DispatchAsync(()=> func(WindowManager));
+    }
+
     internal void RunMessageLoop(
-        TaskCompletionSource<IUIThreadOperator> startTcs,
+        TaskCompletionSource<IUIThread> startTcs,
         CancellationToken ct = default
     )
     {

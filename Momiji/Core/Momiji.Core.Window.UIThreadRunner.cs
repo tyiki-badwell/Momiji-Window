@@ -1,5 +1,4 @@
-﻿using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Momiji.Internal.Log;
 
 namespace Momiji.Core.Window;
@@ -12,29 +11,25 @@ internal sealed class UIThreadRunner : IUIThreadRunner
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
-    private readonly IConfiguration _configuration;
     private bool _disposed;
 
     private readonly Task _processTask;
 
     private readonly CancellationTokenSource _processCancel;
-    private readonly IUIThreadOperator.OnStop? _onStop;
-    private readonly IUIThreadOperator.OnUnhandledException? _onUnhandledException;
+    private readonly IUIThreadFactory.OnStop? _onStop;
+    private readonly IUIThreadFactory.OnUnhandledException? _onUnhandledException;
 
     internal UIThreadRunner(
         ILoggerFactory loggerFactory,
-        IConfiguration configuration,
-        TaskCompletionSource<IUIThreadOperator> startTcs,
-        IUIThreadOperator.OnStop? onStop = default,
-        IUIThreadOperator.OnUnhandledException? onUnhandledException = default
+        TaskCompletionSource<IUIThread> startTcs,
+        IUIThreadFactory.OnStop? onStop = default,
+        IUIThreadFactory.OnUnhandledException? onUnhandledException = default
     )
     {
         ArgumentNullException.ThrowIfNull(loggerFactory);
-        ArgumentNullException.ThrowIfNull(configuration);
 
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<UIThreadRunner>();
-        _configuration = configuration;
 
         _onStop = onStop;
         _onUnhandledException = onUnhandledException;
@@ -121,7 +116,7 @@ internal sealed class UIThreadRunner : IUIThreadRunner
     }
 
     private async Task Start(
-        TaskCompletionSource<IUIThreadOperator> startTcs //TODO IProgressの方が良い？
+        TaskCompletionSource<IUIThread> startTcs //TODO IProgressの方が良い？
     )
     {
         //TODO task作りすぎ？
@@ -164,7 +159,7 @@ internal sealed class UIThreadRunner : IUIThreadRunner
     }
 
     private Task Run(
-        TaskCompletionSource<IUIThreadOperator> startTcs
+        TaskCompletionSource<IUIThread> startTcs
     )
     {
         var tcs = new TaskCompletionSource(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
@@ -176,7 +171,6 @@ internal sealed class UIThreadRunner : IUIThreadRunner
             {
                 await using var uiThread = new UIThread(
                     _loggerFactory, 
-                    _configuration, 
                     _onUnhandledException
                 );
 

@@ -3,17 +3,17 @@ using Momiji.Internal.Log;
 
 namespace Momiji.Core.Window;
 
-internal sealed class UIThreadOperator : IUIThreadOperator
+internal sealed class UIThreadOperator : IUIThread
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private bool _disposed;
 
-    private UIThread UIThread { get; }
+    private IUIThread UIThread { get; }
 
     internal UIThreadOperator(
         ILoggerFactory loggerFactory,
-        UIThread uiThread    
+        IUIThread uiThread    
     )
     {
         _loggerFactory = loggerFactory;
@@ -62,18 +62,18 @@ internal sealed class UIThreadOperator : IUIThreadOperator
     {
         _logger.LogWithLine(LogLevel.Trace, "DisposeAsync start", Environment.CurrentManagedThreadId);
 
-        await UIThread.CancelAsync();
+        await CancelAsync();
 
         _logger.LogWithLine(LogLevel.Trace, "DisposeAsync end", Environment.CurrentManagedThreadId);
     }
 
+    public async ValueTask CancelAsync()
+    {
+        await UIThread.CancelAsync();
+    }
+
     public async ValueTask<TResult> DispatchAsync<TResult>(Func<IWindowManager, TResult> item)
     {
-        TResult func()
-        {
-            return item(UIThread.WindowManager);
-        }
-
-        return await UIThread.DispatcherQueue.DispatchAsync(func);
+        return await UIThread.DispatchAsync(item);
     }
 }

@@ -21,14 +21,14 @@ internal abstract class NativeWindowBase : IWindowInternal
 
     internal ILogger Logger { get; }
 
-    protected WindowManager WindowManager { get; }
+    protected IWindowManagerInternal WindowManager { get; }
 
     public User32.HWND HWND { set; get; }
     public nint Handle => HWND.Handle;
 
     internal NativeWindowBase(
         ILoggerFactory loggerFactory,
-        WindowManager windowManager
+        IWindowManagerInternal windowManager
     )
     {
         //TODO UIAutomation
@@ -138,23 +138,30 @@ internal sealed class NativeWindow : NativeWindowBase
     internal NativeWindow(
         ILoggerFactory loggerFactory,
         WindowManager windowManager,
-        string className,
-        User32.WNDCLASSEX.CS classStyle,
-        string windowTitle,
-        NativeWindow? parent = default,
-        IWindowManager.OnMessage? onMessage = default,
-        IWindowManager.OnMessage? onMessageAfter = default
+        IWindowManager.CreateWindowParameter parameter
     ): base(loggerFactory, windowManager)
     {
         //TODO UIAutomation
-        WindowClass = WindowManager.WindowClassManager.QueryWindowClass(className, classStyle);
+        WindowClass = WindowManager.WindowClassManager.QueryWindowClass(
+            parameter.className,
+            (User32.WNDCLASSEX.CS)parameter.classStyle
+        );
 
-        _windowTitle = windowTitle;
+        _windowTitle = parameter.windowTitle;
 
-        _onMessage = onMessage;
-        _onMessageAfter = onMessageAfter;
+        _onMessage = parameter.onMessage;
+        _onMessageAfter = parameter.onMessageAfter;
 
-        CreateWindow(windowTitle, parent);
+        CreateWindow(
+            parameter.windowTitle,
+            (uint)parameter.exStyle,
+            (uint)parameter.style,
+            parameter.x,
+            parameter.y,
+            parameter.width,
+            parameter.height,
+            (parameter.parent as NativeWindow)
+        );
     }
 
     protected override void Dispose(bool disposing)
@@ -189,37 +196,29 @@ internal sealed class NativeWindow : NativeWindowBase
 
     private void CreateWindow(
         string windowTitle,
+        uint exStyle,
+        uint style,
+        int x,
+        int y,
+        int width,
+        int height,
         NativeWindow? parent = default
     )
     {
-        //TODO パラメーターにする
-        var exStyle = 0U;
-        var style = 0U;
-
         var hMenu = nint.Zero;
         var parentHWnd = User32.HWND.None;
 
         if (parent == null)
         {
-            style = 0x10000000U; //WS_VISIBLE
-                                 //style |= 0x80000000U; //WS_POPUP
-            style |= 0x00C00000U; //WS_CAPTION
-            style |= 0x00080000U; //WS_SYSMENU
-            style |= 0x00040000U; //WS_THICKFRAME
-            style |= 0x00020000U; //WS_MINIMIZEBOX
-            style |= 0x00010000U; //WS_MAXIMIZEBOX
         }
         else
         {
             parentHWnd = parent.HWND;
 
-            style = 0x10000000U; //WS_VISIBLE
             style |= 0x40000000U; //WS_CHILD
 
             hMenu = WindowManager.GenerateChildId(this); //子ウインドウ識別子
         }
-
-        var CW_USEDEFAULT = unchecked((int)0x80000000);
 
         // メッセージループに移行してからCreateWindowする
         var task = DispatchAsync((window) =>
@@ -229,10 +228,10 @@ internal sealed class NativeWindow : NativeWindowBase
                 WindowClass.ClassName,
                 windowTitle,
                 style,
-                CW_USEDEFAULT,
-                CW_USEDEFAULT,
-                CW_USEDEFAULT,
-                CW_USEDEFAULT,
+                x,
+                y,
+                width,
+                height,
                 parentHWnd,
                 hMenu,
                 WindowClass.HInstance

@@ -98,7 +98,6 @@ public class WindowManagerTest : IDisposable
         using var windowManager =
             new WindowManager(
                 _loggerFactory,
-                CreateConfiguration(),
                 new DummyUIThreadChecker(),
                 new DummyDispatcherQueue()
             );
@@ -113,7 +112,6 @@ public class WindowManagerTest : IDisposable
         using var windowManager = 
             new WindowManager(
                 _loggerFactory, 
-                CreateConfiguration(), 
                 new DummyUIThreadChecker(), 
                 new DummyDispatcherQueue()
             );
@@ -139,7 +137,6 @@ public class WindowManagerTest : IDisposable
         using var windowManager =
             new WindowManager(
                 _loggerFactory,
-                CreateConfiguration(),
                 new DummyUIThreadChecker(),
                 new DummyDispatcherQueue()
             );
@@ -155,20 +152,12 @@ public class WindowManagerTest : IDisposable
         using var windowManager =
             new WindowManager(
                 _loggerFactory,
-                CreateConfiguration(),
                 new DummyUIThreadChecker(),
                 new DummyDispatcherQueue()
             );
 
         //TODO メッセージポンプが無いので、応答待ちになる
-        var window =
-            windowManager.CreateWindow(
-                "test",
-                default,
-                "",
-                (sender, message) => { },
-                (sender, message) => { }
-            );
+        var window = windowManager.CreateWindow(new());
 
         window.Close();
     }
