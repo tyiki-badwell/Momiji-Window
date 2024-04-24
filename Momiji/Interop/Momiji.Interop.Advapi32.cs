@@ -257,7 +257,7 @@ internal static partial class NativeMethods
     );
 }
 
-internal sealed class HToken : SafeHandleZeroOrMinusOneIsInvalid
+internal sealed partial class HToken : SafeHandleZeroOrMinusOneIsInvalid
 {
     public HToken() : base(true)
     {

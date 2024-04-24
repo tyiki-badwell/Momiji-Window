@@ -19,7 +19,7 @@ internal interface IWindowManagerInternal : IWindowManager, IDisposable
     int GenerateChildId(IWindowInternal window);
 }
 
-internal sealed class WindowManager : IWindowManagerInternal
+internal sealed partial class WindowManager : IWindowManagerInternal
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -58,7 +58,7 @@ internal sealed class WindowManager : IWindowManagerInternal
         DispatcherQueue = dispatcherQueue;
         WindowContextSynchronizationContext = new(_loggerFactory, DispatcherQueue);
 
-        WindowProcedure = new WindowProcedure(_loggerFactory, uiThreadChecker, OnMessage, OnThreadMessage);
+        WindowProcedure = new WindowProcedure(_loggerFactory, uiThreadChecker, OnWindowMessage, OnThreadMessage);
 
         WindowClassManager = new WindowClassManager(_loggerFactory, WindowProcedure);
     }
@@ -250,9 +250,9 @@ internal sealed class WindowManager : IWindowManagerInternal
 
     }
 
-    private void OnMessage(User32.HWND hwnd, IWindowManager.IMessage message)
+    private void OnWindowMessage(User32.HWND hwnd, IWindowManager.IMessage message)
     {
-        _logger.LogWithMsg(LogLevel.Trace, "OnMessage", hwnd, message, Environment.CurrentManagedThreadId);
+        _logger.LogWithMsg(LogLevel.Trace, "OnWindowMessage", hwnd, message, Environment.CurrentManagedThreadId);
 
         using var switchContext = new SwitchSynchronizationContextRAII(WindowContextSynchronizationContext, _logger);
 

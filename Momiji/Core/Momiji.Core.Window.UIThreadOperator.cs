@@ -3,7 +3,7 @@ using Momiji.Internal.Log;
 
 namespace Momiji.Core.Window;
 
-internal sealed class UIThreadOperator : IUIThread
+internal sealed partial class UIThreadOperator : IUIThread
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;

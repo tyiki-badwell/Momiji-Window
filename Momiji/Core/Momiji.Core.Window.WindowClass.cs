@@ -17,7 +17,7 @@ internal interface IWindowClass
     void CallOriginalWindowProc(User32.HWND hwnd, IWindowManager.IMessage message);
 }
 
-internal sealed class WindowClass : IWindowClass, IDisposable
+internal sealed partial class WindowClass : IWindowClass, IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -42,7 +42,7 @@ internal sealed class WindowClass : IWindowClass, IDisposable
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<WindowClass>();
 
-        _className = nameof(WindowClass) + className + Guid.NewGuid().ToString();
+        _className = $"{nameof(WindowClass)}{className}-{classStyle:X}:{Guid.NewGuid()}";
         _lpszClassName = new(_className, _logger);
 
         if (className == "")

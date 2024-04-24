@@ -1,4 +1,5 @@
-﻿using System.Windows.Interop;
+﻿using System.Windows;
+using System.Windows.Interop;
 using Momiji.Core.Window;
 
 namespace Momiji.Driver;
@@ -12,7 +13,7 @@ public class Program
     }
 }
 
-public class Worker : BackgroundService
+public partial class Worker : BackgroundService
 {
     public static IHost CreateHost(string[] args)
     {
@@ -68,8 +69,11 @@ public class Worker : BackgroundService
         var a = scope.ServiceProvider.GetRequiredService<IUIThread>();
         var b = scope.ServiceProvider.GetRequiredService<IUIThread>();
 
+        var classStyle = 0;
+        classStyle |= 0x00000020; //CS_OWNDC
+
         var windowStyle = 0;
-        windowStyle = 0x10000000; //WS_VISIBLE
+        windowStyle |= 0x10000000; //WS_VISIBLE
         //windowStyle |= 0x80000000U; //WS_POPUP
         windowStyle |= 0x00C00000; //WS_CAPTION
         windowStyle |= 0x00080000; //WS_SYSMENU
@@ -77,14 +81,19 @@ public class Worker : BackgroundService
         windowStyle |= 0x00020000; //WS_MINIMIZEBOX
         windowStyle |= 0x00010000; //WS_MAXIMIZEBOX
 
+        var exWindowStyle = 0;
+        //exWindowStyle |= 0x00200000; //WS_EX_NOREDIRECTIONBITMAP
+
         var childStyle = 0;
-        childStyle = 0x10000000; //WS_VISIBLE
+        childStyle |= 0x40000000; //WS_CHILD
+        childStyle |= 0x10000000; //WS_VISIBLE
 
         var windowA = a.CreateWindow(new()
         {
             windowTitle = "windowA",
-            classStyle = 0x00000020, 
+            classStyle = classStyle, 
             style = windowStyle,
+            exStyle = exWindowStyle,
             onMessage = async (sender, message) =>
             {
                 //logger?.LogInformation($"   windowA:{message}");
@@ -99,9 +108,17 @@ public class Worker : BackgroundService
                         //message.WParam 上位ワード　0：メニュー／1：アクセラレータ／その他：ボタン識別子　下位ワード　識別子
                         //message.LParam ウインドウハンドル
 
-                        _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] delay start ===============================");
+                        _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}][{message}] delay start ===============================");
                         await Task.Delay(1000);
                         _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] delay end ===============================");
+
+                        a.CreateWindow(new()
+                        {
+                            windowTitle = $"window{Guid.NewGuid()}",
+                            classStyle = classStyle,
+                            style = windowStyle,
+                            exStyle = exWindowStyle,
+                        });
 
                         break;
 

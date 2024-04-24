@@ -9,7 +9,7 @@ using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
-internal sealed class UIThread : IUIThread
+internal sealed partial class UIThread : IUIThread
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -122,7 +122,7 @@ internal sealed class UIThread : IUIThread
 
     public async ValueTask<TResult> DispatchAsync<TResult>(Func<IWindowManager, TResult> func)
     {
-        return await DispatcherQueue.DispatchAsync(()=> func(WindowManager));
+        return await DispatcherQueue.DispatchAsync(() => func(WindowManager));
     }
 
     internal void RunMessageLoop(

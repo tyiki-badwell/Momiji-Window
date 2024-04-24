@@ -5,7 +5,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Momiji.Core.Window;
 
 [TestClass]
-public class DispatcherQueueTest : IDisposable
+public partial class DispatcherQueueTest : IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;

@@ -7,7 +7,7 @@ using User32 = Momiji.Interop.User32.NativeMethods;
 namespace Momiji.Core.Window;
 
 [TestClass]
-public class WindowClassTest : IDisposable
+public partial class WindowClassTest : IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -110,7 +110,7 @@ public class WindowClassTest : IDisposable
             _loggerFactory,
             uiThreadActivator,
             (hwnd, message) => {
-                _logger.LogInformation($"šthread:[{Environment.CurrentManagedThreadId:X}] OnMessage {hwnd:X} {message}");
+                _logger.LogInformation($"šthread:[{Environment.CurrentManagedThreadId:X}] OnWindowMessage {hwnd:X} {message}");
             },
             (message) => {
                 _logger.LogInformation($"šthread:[{Environment.CurrentManagedThreadId:X}] OnThreadMessage {message}");

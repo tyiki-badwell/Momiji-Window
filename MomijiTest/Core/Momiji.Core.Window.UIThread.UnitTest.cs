@@ -5,7 +5,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Momiji.Core.Window;
 
 [TestClass]
-public class UIThreadTest : IDisposable
+public partial class UIThreadTest : IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;

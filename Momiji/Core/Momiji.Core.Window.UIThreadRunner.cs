@@ -7,7 +7,7 @@ internal interface IUIThreadRunner: IDisposable, IAsyncDisposable
 {
 }
 
-internal sealed class UIThreadRunner : IUIThreadRunner
+internal sealed partial class UIThreadRunner : IUIThreadRunner
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;

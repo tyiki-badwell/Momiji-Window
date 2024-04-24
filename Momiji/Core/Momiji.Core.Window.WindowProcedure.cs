@@ -27,10 +27,10 @@ internal interface IWindowProcedure
     );
 
     User32.HWND CreateWindow(
-        uint dwExStyle,
+        User32.WS_EX dwExStyle,
         nint lpszClassName,
         string windowTitle,
-        uint style,
+        User32.WS style,
         int x,
         int y,
         int width,
@@ -44,7 +44,7 @@ internal interface IWindowProcedure
 
 }
 
-internal sealed class WindowProcedure : IWindowProcedure, IDisposable
+internal sealed partial class WindowProcedure : IWindowProcedure, IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -55,8 +55,8 @@ internal sealed class WindowProcedure : IWindowProcedure, IDisposable
     private readonly PinnedDelegate<User32.WNDPROC> _wndProc;
     public nint FunctionPointer => _wndProc.FunctionPointer;
 
-    internal delegate void OnMessageEventHandler(User32.HWND hwnd, IWindowManager.IMessage message);
-    private readonly OnMessageEventHandler? _onMessage;
+    internal delegate void OnWindowMessageEventHandler(User32.HWND hwnd, IWindowManager.IMessage message);
+    private readonly OnWindowMessageEventHandler? _onWindowMessage;
 
     internal delegate void OnThreadMessageEventHandler(IWindowManager.IMessage message);
     private readonly OnThreadMessageEventHandler? _onThreadMessage;
@@ -66,7 +66,7 @@ internal sealed class WindowProcedure : IWindowProcedure, IDisposable
     internal WindowProcedure(
         ILoggerFactory loggerFactory,
         IUIThreadChecker uiThreadChecker,
-        OnMessageEventHandler? onMessage,
+        OnWindowMessageEventHandler? onWindowMessage,
         OnThreadMessageEventHandler? onThreadMessage
     )
     {
@@ -79,7 +79,7 @@ internal sealed class WindowProcedure : IWindowProcedure, IDisposable
 
         _wndProc = new(WndProc);
 
-        _onMessage = onMessage;
+        _onWindowMessage = onWindowMessage;
         _onThreadMessage = onThreadMessage;
     }
 
@@ -229,10 +229,10 @@ internal sealed class WindowProcedure : IWindowProcedure, IDisposable
     }
 
     public User32.HWND CreateWindow(
-        uint dwExStyle,
+        User32.WS_EX dwExStyle,
         nint lpszClassName,
         string windowTitle,
-        uint style,
+        User32.WS style,
         int x,
         int y,
         int width,
@@ -242,7 +242,7 @@ internal sealed class WindowProcedure : IWindowProcedure, IDisposable
         nint hInst
     )
     {
-        _logger.LogWithLine(LogLevel.Trace, "CreateWindowEx", Environment.CurrentManagedThreadId);
+        _logger.LogWithLine(LogLevel.Trace, $"CreateWindowEx {dwExStyle} {style}", Environment.CurrentManagedThreadId);
 
         //DPI awareness 
         using var switchBehavior = new SwitchThreadDpiHostingBehaviorMixedRAII(_logger);
@@ -412,25 +412,20 @@ internal sealed class WindowProcedure : IWindowProcedure, IDisposable
 
         try
         {
-            _onMessage?.Invoke(hwnd, message);
-
-            if (message.Handled)
-            {
-                return message.Result;
-            }
+            _onWindowMessage?.Invoke(hwnd, message);
         }
         catch (Exception e)
         {
             var error = new WndProcException("error occurred in WndProc", hwnd, message.Msg, message.WParam, message.LParam, e);
             _logger.LogWithLine(LogLevel.Trace, error, "error occurred in WndProc", Environment.CurrentManagedThreadId);
             _wndProcExceptionStack.Push(error);
-
-            if (message.Handled)
-            {
-                return message.Result;
-            }
         }
 
+        if (message.Handled)
+        {
+            return message.Result;
+        }
+ 
         return User32.DefWindowProcW(hwnd, msg, wParam, lParam);
     }
 

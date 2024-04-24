@@ -13,7 +13,7 @@ internal interface IWindowClassManager
     );
 }
 
-internal sealed class WindowClassManager : IWindowClassManager, IDisposable
+internal sealed partial class WindowClassManager : IWindowClassManager, IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;

@@ -6,7 +6,7 @@ using User32 = Momiji.Interop.User32.NativeMethods;
 namespace Momiji.Core.Window;
 
 [TestClass]
-public class WindowManagerTest : IDisposable
+public partial class WindowManagerTest : IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -68,7 +68,7 @@ public class WindowManagerTest : IDisposable
 #pragma warning restore CS1998 // 非同期メソッドは、'await' 演算子がないため、同期的に実行されます
     }
 
-    private class DummyWindow : IWindowInternal
+    private partial class DummyWindow : IWindowInternal
     {
         public nint Handle => 0;
 

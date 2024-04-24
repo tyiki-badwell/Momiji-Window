@@ -11,7 +11,7 @@ internal interface IDispatcherQueue
     ValueTask<TResult> DispatchAsync<TResult>(Func<TResult> func);
 }
 
-internal sealed class DispatcherQueue : IDispatcherQueue, IDisposable
+internal sealed partial class DispatcherQueue : IDispatcherQueue, IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;

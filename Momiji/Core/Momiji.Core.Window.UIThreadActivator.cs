@@ -17,7 +17,7 @@ internal interface IUIThreadChecker
     event InactivatedEventHandler OnInactivated;
 }
 
-internal class UIThreadActivator : IUIThreadChecker
+internal partial class UIThreadActivator : IUIThreadChecker
 {
     private readonly ILoggerFactory _loggerFactory;
     internal int _uiThreadId;
@@ -59,7 +59,7 @@ internal class UIThreadActivator : IUIThreadChecker
         }
     }
 
-    internal class Token : IDisposable
+    internal partial class Token : IDisposable
     {
         private readonly ILogger _logger;
         private readonly UIThreadActivator _activator;

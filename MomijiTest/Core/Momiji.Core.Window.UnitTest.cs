@@ -24,7 +24,7 @@ public class WindowExceptionUnitTest
 }
 
 [TestClass]
-public class WindowUnitTest : IDisposable
+public partial class WindowUnitTest : IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -254,6 +254,7 @@ public class WindowUnitTest : IDisposable
                     var child = manager.CreateWindow(new()
                     {
                         parent = sender,
+                        style = 0x40000000, //WS_CHILD
                         className = "EDIT",
                         onMessage = (sender, message) =>
                         {
@@ -287,6 +288,7 @@ public class WindowUnitTest : IDisposable
                             var child = manager.CreateWindow(new()
                             {
                                 parent = sender,
+                                style = 0x40000000, //WS_CHILD
                                 className = "EDITXXX",
                                 onMessage = (sender, message) =>
                                 {
@@ -885,6 +887,7 @@ public class WindowUnitTest : IDisposable
         {
             windowTitle = "buttonA",
             parent = windowA,
+            style = 0x40000000, //WS_CHILD
             className = "BUTTON",
             onMessage = (sender, message) =>
             {
@@ -896,6 +899,7 @@ public class WindowUnitTest : IDisposable
         {
             windowTitle = "windowAA",
             parent = windowA,
+            style = 0x40000000, //WS_CHILD
             onMessage = (sender, message) =>
             {
                 _logger.LogInformation($"CHILD W on message {message}");
@@ -906,6 +910,7 @@ public class WindowUnitTest : IDisposable
         {
             windowTitle = "buttonB",
             parent = windowA,
+            style = 0x40000000, //WS_CHILD
             className = "BUTTON",
             onMessage = (sender, message) =>
             {

@@ -125,7 +125,7 @@ internal abstract class NativeWindowBase : IWindowInternal
     }
 }
 
-internal sealed class NativeWindow : NativeWindowBase
+internal sealed partial class NativeWindow : NativeWindowBase
 {
     private bool _disposed;
     private readonly IWindowManager.OnMessage? _onMessage;
@@ -154,8 +154,8 @@ internal sealed class NativeWindow : NativeWindowBase
 
         CreateWindow(
             parameter.windowTitle,
-            (uint)parameter.exStyle,
-            (uint)parameter.style,
+            (User32.WS_EX)parameter.exStyle,
+            (User32.WS)parameter.style,
             parameter.x,
             parameter.y,
             parameter.width,
@@ -176,14 +176,17 @@ internal sealed class NativeWindow : NativeWindowBase
             Logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
         }
 
-        if (!User32.DestroyWindow(HWND))
+        if (HWND.Handle != User32.HWND.None.Handle)
         {
-            var error = new Win32Exception();
-            Logger.LogWithHWndAndError(LogLevel.Error, "DestroyWindow failed", HWND, error.ToString(), Environment.CurrentManagedThreadId);
-        }
-        else
-        {
-            Logger.LogWithHWnd(LogLevel.Trace, $"DestroyWindow OK", HWND, Environment.CurrentManagedThreadId);
+            if (!User32.DestroyWindow(HWND))
+            {
+                var error = new Win32Exception();
+                Logger.LogWithHWndAndError(LogLevel.Error, "DestroyWindow failed", HWND, error.ToString(), Environment.CurrentManagedThreadId);
+            }
+            else
+            {
+                Logger.LogWithHWnd(LogLevel.Trace, $"DestroyWindow OK", HWND, Environment.CurrentManagedThreadId);
+            }
         }
 
         _disposed = true;
@@ -196,8 +199,8 @@ internal sealed class NativeWindow : NativeWindowBase
 
     private void CreateWindow(
         string windowTitle,
-        uint exStyle,
-        uint style,
+        User32.WS_EX exStyle,
+        User32.WS style,
         int x,
         int y,
         int width,
@@ -210,14 +213,18 @@ internal sealed class NativeWindow : NativeWindowBase
 
         if (parent == null)
         {
+            //なにかすることあれば
         }
         else
         {
             parentHWnd = parent.HWND;
 
-            style |= 0x40000000U; //WS_CHILD
-
-            hMenu = WindowManager.GenerateChildId(this); //子ウインドウ識別子
+            if (!User32.WS.NONE.Equals(style) && User32.WS.CHILD.HasFlag(style))
+            {
+                //WS_CHILDがあるときは、子ウインドウ識別子をセット
+                //TODO 自動でセットするのは良くないか？
+                hMenu = WindowManager.GenerateChildId(this);
+            }
         }
 
         // メッセージループに移行してからCreateWindowする
@@ -279,7 +286,7 @@ internal sealed class NativeWindow : NativeWindowBase
     }
 }
 
-internal sealed class SubClassNativeWindow : NativeWindowBase
+internal sealed partial class SubClassNativeWindow : NativeWindowBase
 {
     private bool _disposed;
     private readonly nint _oldWinProc = default;
