@@ -8,7 +8,7 @@ using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
-internal interface IWindowClass
+internal interface IWindowClass : IDisposable
 {
     nint ClassName { get; }
 
@@ -17,7 +17,7 @@ internal interface IWindowClass
     void CallOriginalWindowProc(User32.HWND hwnd, IWindowManager.IMessage message);
 }
 
-internal sealed partial class WindowClass : IWindowClass, IDisposable
+internal sealed partial class WindowClass : IWindowClass
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -136,7 +136,11 @@ internal sealed partial class WindowClass : IWindowClass, IDisposable
             //クローズしていないウインドウが残っていると失敗する
             var result = User32.UnregisterClassW(_windowClass.lpszClassName, _windowClass.hInstance);
             var error = new Win32Exception();
-            _logger.LogWithError(LogLevel.Information, $"UnregisterClass [windowClass:{_windowClass}] [result:{result}]", error.ToString(), Environment.CurrentManagedThreadId);
+            _logger.LogWithError(
+                result ? LogLevel.Information: LogLevel.Error, 
+                $"UnregisterClass [windowClass:{_windowClass}] [result:{result}]", 
+                error.ToString(), 
+                Environment.CurrentManagedThreadId);
         }
 
         if (_lpszClassName != default)

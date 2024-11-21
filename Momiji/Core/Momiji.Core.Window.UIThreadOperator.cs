@@ -9,6 +9,8 @@ internal sealed partial class UIThreadOperator : IUIThread
     private readonly ILogger _logger;
     private bool _disposed;
 
+    public event IUIThread.InactivatedEventHandler? OnInactivated;
+
     private IUIThread UIThread { get; }
 
     internal UIThreadOperator(
@@ -20,6 +22,7 @@ internal sealed partial class UIThreadOperator : IUIThread
         _logger = _loggerFactory.CreateLogger<UIThreadOperator>();
 
         UIThread = uiThread;
+        UIThread.OnInactivated += OnInactivatedBridge;
     }
 
     ~UIThreadOperator()
@@ -76,4 +79,11 @@ internal sealed partial class UIThreadOperator : IUIThread
     {
         return await UIThread.DispatchAsync(item);
     }
+
+    private void OnInactivatedBridge()
+    {
+        _logger.LogWithLine(LogLevel.Trace, "OnInactivated", Environment.CurrentManagedThreadId);
+        OnInactivated?.Invoke();
+    }
+
 }

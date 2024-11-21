@@ -15,17 +15,22 @@ internal sealed partial class UIThread : IUIThread
     private readonly ILogger _logger;
     private bool _disposed;
 
+    public event IUIThread.InactivatedEventHandler? OnInactivated;
+
     private readonly TaskCompletionSource _tcs = new(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly CancellationTokenSource _cts = new();
     private bool _run;
 
-    private UIThreadActivator UIThreadActivator { get; }
-    private DispatcherQueue DispatcherQueue { get; }
-    private WindowManager WindowManager { get; }
+    private IUIThreadChecker UIThreadChecker { get; }
+    private IDispatcherQueue DispatcherQueue { get; }
+
+    private IWindowManagerInternal WindowManager { get; }
 
     internal UIThread(
         ILoggerFactory loggerFactory,
-        IUIThreadFactory.OnUnhandledException? onUnhandledException = default
+        IUIThreadChecker uiThreadChecker,
+        IDispatcherQueue dispatcherQueue,
+        IWindowManager windowManager
     )
     {
         ArgumentNullException.ThrowIfNull(loggerFactory);
@@ -33,9 +38,12 @@ internal sealed partial class UIThread : IUIThread
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<UIThread>();
 
-        UIThreadActivator = new(_loggerFactory);
-        DispatcherQueue = new(_loggerFactory, UIThreadActivator, onUnhandledException);
-        WindowManager = new(_loggerFactory, UIThreadActivator, DispatcherQueue);
+        UIThreadChecker = uiThreadChecker;
+        UIThreadChecker.OnInactivated += OnInactivatedBridge;
+
+        DispatcherQueue = dispatcherQueue;
+        //RTWorkQueueManager = new(configuration, _loggerFactory);
+        WindowManager = (IWindowManagerInternal)windowManager;
     }
 
     ~UIThread()
@@ -60,6 +68,8 @@ internal sealed partial class UIThread : IUIThread
         {
             _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
             DisposeAsyncCore().AsTask().GetAwaiter().GetResult();
+
+            _cts.Dispose();
         }
 
         _disposed = true;
@@ -79,9 +89,6 @@ internal sealed partial class UIThread : IUIThread
         _logger.LogWithLine(LogLevel.Trace, "DisposeAsync start", Environment.CurrentManagedThreadId);
 
         await CancelAsync();
-
-        WindowManager.Dispose();
-        DispatcherQueue.Dispose();
 
         _cts.Dispose();
 
@@ -111,6 +118,7 @@ internal sealed partial class UIThread : IUIThread
             }
             catch (Exception e)
             {
+                //TODO エラーになるケースがあるか？
                 _logger.LogWithLine(LogLevel.Error, e, "message loop error", Environment.CurrentManagedThreadId);
             }
         }
@@ -120,8 +128,15 @@ internal sealed partial class UIThread : IUIThread
         }
     }
 
+    private void OnInactivatedBridge()
+    {
+        _logger.LogWithLine(LogLevel.Trace, "OnInactivated", Environment.CurrentManagedThreadId);
+        OnInactivated?.Invoke();
+    }
+
     public async ValueTask<TResult> DispatchAsync<TResult>(Func<IWindowManager, TResult> func)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         return await DispatcherQueue.DispatchAsync(() => func(WindowManager));
     }
 
@@ -145,22 +160,28 @@ internal sealed partial class UIThread : IUIThread
 
         try
         {
-            using var active = UIThreadActivator.Activate();
+            using var active = UIThreadChecker.Activate();
             _run = true;
 
+            //TODO UIThreadOperatorを間に挟む意義が無くなってる
             startTcs.SetResult(new UIThreadOperator(_loggerFactory, this));
 
             RunMessageLoopMain(
                 waitHandlesPin,
                 linkedCt
             );
+
+            //TODO ここを抜けてactiveを破棄した後でSendOrPostCallbackが呼ばれる場合がある. 待つ方法？
+
         }
         catch (Exception e)
         {
+            //TODO エラーになるケースがあるか？
             _tcs.SetException(e);
         }
         finally
         {
+            _run = false;
             _tcs.TrySetResult();
         }
 
@@ -190,6 +211,10 @@ internal sealed partial class UIThread : IUIThread
                 {
                     _logger.LogWithLine(LogLevel.Information, "all closed.", Environment.CurrentManagedThreadId);
                     break;
+                }
+                else
+                {
+                    _logger.LogWithLine(LogLevel.Information, "wait close.", Environment.CurrentManagedThreadId);
                 }
             }
             else if (ct.IsCancellationRequested)

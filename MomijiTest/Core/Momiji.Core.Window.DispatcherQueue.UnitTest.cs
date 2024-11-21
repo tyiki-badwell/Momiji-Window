@@ -55,7 +55,8 @@ public partial class DispatcherQueueTest : IDisposable
     public enum MethodType
     {
         Action,
-        SendOrPostCallback
+        SendOrPostCallback,
+        Async
     }
 
     [TestMethod]
@@ -63,6 +64,8 @@ public partial class DispatcherQueueTest : IDisposable
     [DataRow(true, MethodType.Action)]
     [DataRow(false, MethodType.SendOrPostCallback)]
     [DataRow(true, MethodType.SendOrPostCallback)]
+    [DataRow(false, MethodType.Async)]
+    [DataRow(true, MethodType.Async)]
     public async Task TestDispatchQueue(
         bool error,
         MethodType methodType
@@ -72,12 +75,14 @@ public partial class DispatcherQueueTest : IDisposable
         var mainTcs = new TaskCompletionSource<int>();
         var uiThreadActivator = new UIThreadActivator(_loggerFactory);
 
-        using var queue = new DispatcherQueue(_loggerFactory, uiThreadActivator, (e) => {
+        using var queue = new DispatcherQueue(_loggerFactory, uiThreadActivator);
+        queue.OnUnhandledException += (e) =>
+        {
             _logger.LogInformation(e, $"★thread:[{Environment.CurrentManagedThreadId:X}] OnError");
             mainTcs.SetException(e);
             _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] SetException");
             return true;
-        });
+        };
 
         _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] task run");
         var factory = new TaskFactory();
@@ -165,6 +170,38 @@ public partial class DispatcherQueueTest : IDisposable
                 _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] SetResult");
             }, 1);
         }
+        else if (methodType == MethodType.Async)
+        {
+            var result = await queue.DispatchAsync(async () =>
+            {
+                _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] delay start");
+
+                //TODO ConfigureAwait(true)でデッドロックさせない方法？ DispatcherQueueSynchronizationContextで仕掛けを作れる？ デッドロックしそうならthrowしたい
+                await Task.Delay(1).ConfigureAwait(false);
+                _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] delay end");
+
+                //awaitからのcontinueで、DispatchQueue()が終わってDispatcherQueueSynchronizationContextからPost()されるので、もう一度DispatchQueue()を実行
+
+                if (error)
+                {
+                    throw new TestException();
+                }
+
+                return 1;
+            });
+
+            try
+            {
+                _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] SetResult");
+                mainTcs.SetResult(await result);
+            }
+            catch (Exception e)
+            {
+                _logger.LogInformation(e, $"★thread:[{Environment.CurrentManagedThreadId:X}] OnError");
+                mainTcs.SetException(e);
+                _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] SetException");
+            }
+        }
         else
         {
             Assert.Fail();
@@ -204,6 +241,10 @@ public partial class DispatcherQueueTest : IDisposable
             else if (methodType == MethodType.SendOrPostCallback)
             {
                 queue.Dispatch((param) => { }, 2);
+            }
+            else if (methodType == MethodType.Async)
+            {
+                await queue.DispatchAsync(() => { return true; });
             }
             Assert.Fail();
         }

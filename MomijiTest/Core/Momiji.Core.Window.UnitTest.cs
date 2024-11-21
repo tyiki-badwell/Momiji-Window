@@ -376,14 +376,6 @@ public partial class WindowUnitTest : IDisposable
         {
             await using var factory = new UIThreadFactory(_loggerFactory);
             var thread = await factory.StartAsync(
-                (exception) => {
-                    _logger.LogInformation(exception, $"★thread:[{Environment.CurrentManagedThreadId:X}] on stop  [cde:{cde.CurrentCount}]===============================[{SynchronizationContext.Current}]");
-
-                    //exceptionが来たらNG
-                    Assert.IsNull(exception);
-
-                    _logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] on stop end [cde:{cde.CurrentCount}]===============================[{SynchronizationContext.Current}]");
-                },
                 (exception) =>
                 {
                     _logger.LogInformation(exception, $"★thread:[{Environment.CurrentManagedThreadId:X}] on error [cde:{cde.CurrentCount}]===============================[{SynchronizationContext.Current}]");
@@ -539,14 +531,15 @@ public partial class WindowUnitTest : IDisposable
         using var cde = new CountdownEvent(1);
         {
             await using var factory = new UIThreadFactory(_loggerFactory);
-            var thread = await factory.StartAsync((exception) => {
+            var thread = await factory.StartAsync(/*(exception) => {
+                //TODO on stopの仕組みをやめたい（continue withにできるか？）
                 _logger.LogInformation(exception, $"★thread:[{Environment.CurrentManagedThreadId:X}] on stop  [cde:{cde.CurrentCount}]===============================[{SynchronizationContext.Current}]");
 
                 if (!cde.IsSet)
                 {
                     cde.Signal();
                 }
-            });
+            }*/);
 
             async ValueTask<int> method(int param)
             {
@@ -833,12 +826,9 @@ public partial class WindowUnitTest : IDisposable
                         var result4 = await Task.Run(async () =>
                         {
                             _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] dispatch 3 put ===============================[{SynchronizationContext.Current}]");
-                            var result3 = await sender.DispatchAsync((window) =>
+                            var result3 = await sender.DispatchAsync<int>((window) =>
                             {
                                 throw new Exception(errorMessage);
-    #pragma warning disable CS0162 // 到達できないコードが検出されました
-                                return 0;
-    #pragma warning restore CS0162 // 到達できないコードが検出されました
                             });
                             _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] dispatch 3 end[{result3}] ===============================[{SynchronizationContext.Current}]");
                             return result3;

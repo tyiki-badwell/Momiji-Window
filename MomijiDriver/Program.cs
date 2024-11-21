@@ -1,5 +1,5 @@
-﻿using System.Windows;
-using System.Windows.Interop;
+﻿using Microsoft.UI;
+using Microsoft.UI.Xaml.Hosting;
 using Momiji.Core.Window;
 
 namespace Momiji.Driver;
@@ -88,6 +88,19 @@ public partial class Worker : BackgroundService
         childStyle |= 0x40000000; //WS_CHILD
         childStyle |= 0x10000000; //WS_VISIBLE
 
+        var dispatcherQueueController = await a.DispatchAsync((manager) => {
+            _logger.LogInformation("thread A: DispatcherQueueController.CreateOnCurrentThread");
+            return Microsoft.UI.Dispatching.DispatcherQueueController.CreateOnCurrentThread();
+        });
+
+        a.OnInactivated += () => {
+            _logger.LogInformation("thread A: DispatcherQueueController.ShutdownQueue");
+            dispatcherQueueController.ShutdownQueue();
+        };
+
+        //TODO IWindowにプロパティ増やす
+        DesktopWindowXamlSource? xamlSource = default;
+
         var windowA = a.CreateWindow(new()
         {
             windowTitle = "windowA",
@@ -96,9 +109,15 @@ public partial class Worker : BackgroundService
             exStyle = exWindowStyle,
             onMessage = async (sender, message) =>
             {
-                //logger?.LogInformation($"   windowA:{message}");
+                _logger.LogInformation($"   windowA:{message}");
                 switch (message.Msg)
                 {
+                    case 0x0082: //WM_NCDESTROY
+                        _logger.LogInformation($"       windowA:xamlSource.Dispose");
+                        xamlSource?.Dispose();
+
+                        break;
+
                     case 0x0210: //WM_PARENTNOTIFY
                         //message.WParam 子のウインドウメッセージ
                         //message.LParam 下位ワード　X座標／上位ワード　Y座標
@@ -231,10 +250,29 @@ public partial class Worker : BackgroundService
             }
         });
 
-        //WPFコンテンツを挿入する
-        //AウインドウのスレッドでAウインドウに追加
+
         await windowA.DispatchAsync((window) => 
         {
+            //WinUI3コンテンツを挿入する
+            xamlSource = new DesktopWindowXamlSource();
+
+            var id = Win32Interop.GetWindowIdFromWindow(window.Handle);
+
+            _logger.LogInformation($"       windowA:windowId:{id.Value:X}");
+
+            _logger.LogInformation($"       windowA:xamlSource.Initialize");
+            xamlSource.Initialize(id);
+
+            _logger.LogInformation($"       windowA:xamlSource.SiteBridge.WindowId {xamlSource.SiteBridge.WindowId.Value:X}");
+
+            xamlSource.Content = new TestPage();
+
+            xamlSource.TakeFocusRequested += (sender, args) => {
+                _logger.LogInformation($"       windowA:xamlSource.TakeFocusRequested {args.Request}");
+            };
+
+            /*
+
             var style = 0U;
             style = 0x10000000U; //WS_VISIBLE
             style |= 0x40000000U; //WS_CHILD
@@ -248,6 +286,7 @@ public partial class Worker : BackgroundService
             {
                 RootVisual = page
             };
+            */
 
             return 0;
         });

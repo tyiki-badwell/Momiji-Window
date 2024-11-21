@@ -17,6 +17,8 @@ internal interface IWindowManagerInternal : IWindowManager, IDisposable
     IWindowProcedure WindowProcedure { get; }
     ValueTask<TResult> DispatchAsync<TResult>(Func<IWindow, TResult> item, IWindowInternal window);
     int GenerateChildId(IWindowInternal window);
+    void CloseAll();
+    bool IsEmpty { get; }
 }
 
 internal sealed partial class WindowManager : IWindowManagerInternal
@@ -33,7 +35,7 @@ internal sealed partial class WindowManager : IWindowManagerInternal
     public IWindowProcedure WindowProcedure { get; }
     private WindowManagerSynchronizationContext WindowContextSynchronizationContext { get; }
 
-    internal bool IsEmpty => _windowMap.IsEmpty;
+    public bool IsEmpty => _windowMap.IsEmpty;
 
     private readonly ConcurrentDictionary<User32.HWND, IWindowInternal> _windowMap = [];
     private readonly Stack<IWindowInternal> _windowStack = [];
@@ -160,7 +162,7 @@ internal sealed partial class WindowManager : IWindowManagerInternal
         return id;
     }
 
-    internal void CloseAll()
+    public void CloseAll()
     {
         //TODO SendMessageに行くのでUIスレッドで呼び出す必要は無いが、統一すべき？
         foreach (var item in _windowMap)
@@ -201,7 +203,7 @@ internal sealed partial class WindowManager : IWindowManagerInternal
 
         foreach (var item in _windowMap)
         {
-            //TODO UIThreadで実行しないとエラーになってる
+            //NOTE UIThreadで実行しないとエラーになる
             item.Value.Dispose();
         }
 
@@ -215,9 +217,6 @@ internal sealed partial class WindowManager : IWindowManagerInternal
         IWindowManager.CreateWindowParameter parameter
     )
     {
-        //UIスレッドで呼び出す必要アリ
-        UIThreadChecker.ThrowIfCalledFromOtherThread();
-
         var window =
             new NativeWindow(
                 _loggerFactory,
@@ -491,7 +490,14 @@ internal sealed partial class WindowManager : IWindowManagerInternal
     private void PrintWindowStack()
     {
         _logger.LogTrace("================================= PrintWindowStack start");
-        _logger.LogWithLine(LogLevel.Trace, $"window stack {string.Join("<-", _windowStack.Select((window, idx) => $"[hash:{window.GetHashCode():X}][window:{window}]"))}", Environment.CurrentManagedThreadId);
+        if (_windowStack.Count == 0)
+        {
+            _logger.LogTrace("EMPTY");
+        }
+        else
+        {
+            _logger.LogWithLine(LogLevel.Trace, $"window stack {string.Join("<-", _windowStack.Select((window, idx) => $"[hash:{window.GetHashCode():X}][window:{window}]"))}", Environment.CurrentManagedThreadId);
+        }
         _logger.LogTrace("================================= PrintWindowStack end");
     }
 
@@ -500,11 +506,17 @@ internal sealed partial class WindowManager : IWindowManagerInternal
     {
         _logger.LogTrace("================================= PrintWindowMap start");
 
-        foreach (var item in _windowMap)
+        if (_windowMap.IsEmpty)
         {
-            _logger.LogWithHWnd(LogLevel.Trace, $"window map [window:{item.Value}]", item.Key, Environment.CurrentManagedThreadId);
+            _logger.LogTrace("EMPTY");
         }
-
+        else
+        {
+            foreach (var item in _windowMap)
+            {
+                _logger.LogWithHWnd(LogLevel.Trace, $"window map [window:{item.Value}]", item.Key, Environment.CurrentManagedThreadId);
+            }
+        }
         _logger.LogTrace("================================= PrintWindowMap end");
     }
 
