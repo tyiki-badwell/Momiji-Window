@@ -81,8 +81,7 @@ public sealed partial class UIThreadFactory : IUIThreadFactory
     }
 
     public async Task<IUIThread> StartAsync(
-        IUIThreadFactory.OnStop? onStop = default,
-        IUIThreadFactory.OnUnhandledException? onUnhandledException = default
+        IUIThreadFactory.OnUnhandledExceptionHandler? onUnhandledException = default
     )
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -92,13 +91,17 @@ public sealed partial class UIThreadFactory : IUIThreadFactory
 
         var uiThreadRunner = new UIThreadRunner(
             _loggerFactory,
-            tcs, 
-            onStop, 
             onUnhandledException
         );
-        var uiThread = await tcs.Task;
- 
         _uiThreadBag.Add(uiThreadRunner);
+
+        uiThreadRunner.OnStop += (sender, e) => {
+            //TODO 削除
+            //_uiThreadBag.
+        };
+
+        var uiThread = await uiThreadRunner.StartAsync();
+ 
         
         return uiThread;
     }

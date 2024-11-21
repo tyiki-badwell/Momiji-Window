@@ -4,16 +4,13 @@ using Kernel32 = Momiji.Interop.Kernel32.NativeMethods;
 
 internal interface IUIThreadChecker
 {
-    bool IsActivatedThread
-    {
-        get;
-    }
+    bool IsActivatedThread { get; }
     void ThrowIfCalledFromOtherThread();
     void ThrowIfNoActive();
     uint NativeThreadId { get; }
+    IDisposable Activate();
 
     delegate void InactivatedEventHandler();
-
     event InactivatedEventHandler OnInactivated;
 }
 
@@ -36,7 +33,7 @@ internal partial class UIThreadActivator : IUIThreadChecker
         _loggerFactory = loggerFactory;
     }
 
-    internal IDisposable Activate()
+    public IDisposable Activate()
     {
         return new Token(this);
     }

@@ -55,52 +55,30 @@ public partial class UIThreadRunnerTest : IDisposable
     [TestMethod]
     public async Task TestConstruct()
     {
-        var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
-
-        using var uiThreadRunner = new UIThreadRunner(
-            _loggerFactory,
-            tcs
-        );
-
-        using var uiThread = await tcs.Task;
+        using var uiThreadRunner = new UIThreadRunner(_loggerFactory);
+        using var uiThread = await uiThreadRunner.StartAsync();
 
         var result = await uiThread.DispatchAsync((manager) => { return 999; });
         Assert.AreEqual(999, result);
     }
 
     [TestMethod]
-    public async Task TestConstructFail()
+    public async Task TestStartAsync()
     {
-        var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
-        tcs.SetCanceled();
-
         using var mre = new ManualResetEventSlim(false);
 
-        using var uiThreadRunner = new UIThreadRunner(
-            _loggerFactory,
-            tcs,
-            (e) => {
-                _logger.LogInformation(e, "error occurred");
-                mre.Set();
-            }
-        );
+        using var uiThreadRunner = new UIThreadRunner(_loggerFactory);
+        uiThreadRunner.OnStop += (sender, e) => {
+            _logger.LogInformation(e, "on stop");
+            mre.Set();
+        };
 
         try
         {
-            using var uiThread = await tcs.Task;
-            Assert.Fail();
-        }
-        catch (TaskCanceledException e)
-        {
-            //OK
-            _logger.LogInformation(e, "error occurred");
-        }
+            using var uiThread = await uiThreadRunner.StartAsync();
 
-        mre.Wait();
-        /*
-        try
-        {
-            await uiThread.DispatchAsync((manager) => { return 0; });
+            //２重起動はさせない
+            using var uiThread2 = await uiThreadRunner.StartAsync();
             Assert.Fail();
         }
         catch (InvalidOperationException e)
@@ -108,41 +86,83 @@ public partial class UIThreadRunnerTest : IDisposable
             //OK
             _logger.LogInformation(e, "error occurred");
         }
-        */
+
+        _logger.LogInformation("mre wait");
+        mre.Wait();
+        _logger.LogInformation("mre end");
+
+
+        try
+        {
+            //UIスレッドが終わっていれば、もう一度起動できる
+            using var uiThread = await uiThreadRunner.StartAsync();
+        }
+        catch (InvalidOperationException e)
+        {
+            //OK
+            _logger.LogInformation(e, "error occurred");
+        }
+
     }
 
 
     [TestMethod]
     public async Task TestErrorOnStop()
     {
-        var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+        using var uiThreadRunner = new UIThreadRunner(_loggerFactory);
+        uiThreadRunner.OnStop += (sender, e) => {
+            throw new Exception("ON STOP ERROR", e);
+        };
+
+        using var uiThread = await uiThreadRunner.StartAsync();
 
         try
         {
-            using var uiThreadRunner = new UIThreadRunner(
-                _loggerFactory,
-                tcs,
-                (e) =>
-                {
-                    throw new Exception("ERROR");
-                },
-                (e) =>
-                {
-                    throw new Exception("ERROR");
-                }
-            );
-
-            using var uiThread = await tcs.Task;
-
-            var result = await uiThread.DispatchAsync((manager) => { return 999; });
-            Assert.AreEqual(999, result);
+            //UIスレッドが耐える
+            var result = await uiThread.DispatchAsync<int>((manager) => { throw new Exception("DISPATCH ERROR"); });
+            Assert.Fail();
         }
         catch (Exception e)
         {
-            //OK
-            _logger.LogInformation(e, "error occurred");
+            _logger.LogInformation(e, "dispatch error occurred");
+        }
+
+        try
+        {
+            //UIスレッドが耐える
+            var window = uiThread.CreateWindow(new()
+            {
+                onMessage = (sender, message) => {
+                    throw new Exception($"ON MESSAGE ERROR {message}");
+                }
+            });
+        }
+        catch (Exception e)
+        {
+            _logger.LogInformation(e, "message error occurred");
         }
     }
 
+    [TestMethod]
+    public async Task TestAccessDisposedObject()
+    {
+        IUIThread? uiThread = default;
+        {
+            using var uiThreadRunner = new UIThreadRunner(_loggerFactory);
+            uiThread = await uiThreadRunner.StartAsync();
+        }
+
+        try
+        {
+            await uiThread.DispatchAsync((manager) => {
+                return 0;
+            });
+            Assert.Fail();
+        }
+        catch (Exception e)
+        {
+            _logger.LogInformation(e, "dispatch error occurred");
+        }
+    }
 
 }
