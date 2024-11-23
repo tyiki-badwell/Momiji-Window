@@ -11,94 +11,68 @@ public class WindowException : Exception
     }
 }
 
-public interface IWindowManager : IDisposable, IAsyncDisposable
+public interface IUIThreadFactory : IDisposable, IAsyncDisposable
 {
-    public record class Param
+    delegate void OnStop(Exception? exception);
+    delegate bool OnUnhandledException(Exception exception);
+
+    Task<IUIThread> StartAsync(
+        OnStop? onStop = default,
+        OnUnhandledException? onUnhandledException = default
+    );
+}
+
+public interface IUIThread : IDisposable, IAsyncDisposable
+{
+    ValueTask CancelAsync();
+    ValueTask<TResult> DispatchAsync<TResult>(Func<IWindowManager, TResult> item);
+
+}
+
+public interface IWindowManager
+{
+    public interface IMessage
     {
-        public int CS
+        int Msg { get; }
+        nint WParam { get; }
+        nint LParam { get; }
+        int OwnerThreadId { get; }
+        nint Result { get; set; }
+        bool Handled { get; set; }
+    }
+
+    delegate void OnMessage(IWindow sender, IMessage message);
+
+    struct CreateWindowParameter
+    {
+        public string windowTitle = "";
+        public IWindow? parent = default;
+        public string className = "";
+        public int classStyle = 0;
+        public int exStyle = 0;
+        public int style = 0;
+        public int x = unchecked((int)0x80000000U);
+        public int y = unchecked((int)0x80000000U);
+        public int width = unchecked((int)0x80000000U);
+        public int height = unchecked((int)0x80000000U);
+        public OnMessage? onMessage = default;
+        public OnMessage? onMessageAfter = default;
+
+        public CreateWindowParameter()
         {
-            get; init;
         }
     }
 
-    Task StartAsync(CancellationToken stoppingToken);
-    Task CancelAsync();
-
-    public record class Message
-    {
-        public int Msg
-        {
-            get; init;
-        }
-        public nint WParam
-        {
-            get; init;
-        }
-        public nint LParam
-        {
-            get; init;
-        }
-        public nint Result
-        {
-            get; set;
-        }
-
-        public bool Handled
-        {
-            get; set;
-        }
-        public override string ToString()
-        {
-            return $"[Msg:{Msg:X}][WParam:{WParam:X}][LParam:{LParam:X}][Result:{Result:X}][Handled:{Handled}]";
-        }
-    }
-
-    public delegate void OnMessage(IWindow sender, Message message);
-
-    public IWindow CreateWindow(
-        string windowTitle,
-        OnMessage? onMessage = default
+    IWindow CreateWindow(
+        CreateWindowParameter parameter
     );
 
-    public IWindow CreateWindow(
-        IWindow parent,
-        string windowTitle,
-        OnMessage? onMessage = default
-    );
-
-    public IWindow CreateChildWindow(
-        IWindow parent,
-        string className,
-        string windowTitle,
-        OnMessage? onMessage = default
-    );
-
-    void CloseAll();
 }
 
 public interface IWindow
 {
-    nint Handle
-    {
-        get;
-    }
-    ValueTask<T> DispatchAsync<T>(Func<IWindow, T> item);
-    bool Close();
-    ValueTask<bool> MoveAsync(
-        int x,
-        int y,
-        int width,
-        int height,
-        bool repaint
-    );
-
-    ValueTask<bool> ShowAsync(
-        int cmdShow
-    );
-
-    ValueTask<bool> SetWindowStyleAsync(
-        int style
-    );
+    nint Handle { get; }
+    ValueTask<T> DispatchAsync<T>(Func<IWindow, T> func);
 
     nint SendMessage(
         int nMsg,

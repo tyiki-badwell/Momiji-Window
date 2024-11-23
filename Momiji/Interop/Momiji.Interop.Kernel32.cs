@@ -28,7 +28,7 @@ internal static partial class NativeMethods
 {
     [LibraryImport(Libraries.Kernel32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    internal static partial int GetCurrentThreadId();
+    internal static partial uint GetCurrentThreadId();
 }
 internal static partial class NativeMethods
 {

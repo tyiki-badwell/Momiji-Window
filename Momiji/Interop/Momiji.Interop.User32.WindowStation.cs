@@ -3,7 +3,7 @@ using Microsoft.Win32.SafeHandles;
 
 namespace Momiji.Interop.User32;
 
-internal sealed class HWindowStation : SafeHandleZeroOrMinusOneIsInvalid
+internal sealed partial class HWindowStation : SafeHandleZeroOrMinusOneIsInvalid
 {
     public HWindowStation() : base(true)
     {
@@ -15,7 +15,7 @@ internal sealed class HWindowStation : SafeHandleZeroOrMinusOneIsInvalid
     }
 }
 
-internal sealed class HDesktop : SafeHandleZeroOrMinusOneIsInvalid
+internal sealed partial class HDesktop : SafeHandleZeroOrMinusOneIsInvalid
 {
     public HDesktop() : base(true)
     {
@@ -217,6 +217,6 @@ internal static partial class NativeMethods
     [LibraryImport(Libraries.User32, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     internal static partial HDesktop GetThreadDesktop(
-        int dwThreadId
+        uint dwThreadId
     );
 }
