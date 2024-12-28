@@ -55,17 +55,23 @@ public partial class WindowManagerTest : IDisposable
         public uint NativeThreadId => throw new NotImplementedException();
 
         public event IUIThreadChecker.InactivatedEventHandler? OnInactivated = () => { };
-
+        public IDisposable Activate() => throw new NotImplementedException();
         public void ThrowIfCalledFromOtherThread() {}
         public void ThrowIfNoActive() => throw new NotImplementedException();
     }
 
-    private class DummyDispatcherQueue : IDispatcherQueue
+    private partial class DummyDispatcherQueue : IDispatcherQueue
     {
+        public WaitHandle WaitHandle => throw new NotImplementedException();
+
+        public event IUIThreadFactory.OnUnhandledExceptionHandler? OnUnhandledException;
+
         public void Dispatch(SendOrPostCallback callback, object? param) => throw new NotImplementedException();
 #pragma warning disable CS1998 // 非同期メソッドは、'await' 演算子がないため、同期的に実行されます
         public async ValueTask<TResult> DispatchAsync<TResult>(Func<TResult> func) => func();
 #pragma warning restore CS1998 // 非同期メソッドは、'await' 演算子がないため、同期的に実行されます
+        public void DispatchQueue() => throw new NotImplementedException();
+        public void Dispose() => throw new NotImplementedException();
     }
 
     private partial class DummyWindow : IWindowInternal
@@ -118,9 +124,7 @@ public partial class WindowManagerTest : IDisposable
 
         try
         {
-#pragma warning disable CS0162 // 到達できないコードが検出されました
-            var result = await windowManager.DispatchAsync((window) => { throw new TestException(); return 0; }, new DummyWindow());
-#pragma warning restore CS0162 // 到達できないコードが検出されました
+            var result = await windowManager.DispatchAsync<int>((window) => { throw new TestException(); }, new DummyWindow());
             Assert.Fail();
         }
         catch (TestException e)
@@ -156,9 +160,32 @@ public partial class WindowManagerTest : IDisposable
                 new DummyDispatcherQueue()
             );
 
-        //TODO メッセージポンプが無いので、応答待ちになる
-        var window = windowManager.CreateWindow(new());
+        var window = windowManager.CreateWindow(new() { 
+            onMessage = (sender, message) => {
+                if (message.Msg == 0)
+                {
+                    if (message.WParam == 1)
+                    {
+                        message.Result = message.LParam;
+                        message.Handled = true;
+                    }
+                
+                }
+            }
+        });
 
+        {
+            var result = window.SendMessage(0, 1, 2);
+            Assert.AreEqual(2, result);
+        }
+
+        //メッセージポンプが無いので動作しない
+        window.PostMessage(0, 0, 0);
+
+        //全部クローズ
+        windowManager.CloseAll();
+
+        //個別のcloseは失敗するが許している
         window.Close();
     }
 

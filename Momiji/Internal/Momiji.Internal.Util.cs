@@ -4,7 +4,7 @@ using Momiji.Internal.Log;
 
 namespace Momiji.Internal.Util;
 
-internal sealed class StringToHGlobalUni(
+internal sealed partial class StringToHGlobalUni(
     string text,
     ILogger logger
 ) : IDisposable

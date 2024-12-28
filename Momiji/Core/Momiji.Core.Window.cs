@@ -13,12 +13,10 @@ public class WindowException : Exception
 
 public interface IUIThreadFactory : IDisposable, IAsyncDisposable
 {
-    delegate void OnStop(Exception? exception);
-    delegate bool OnUnhandledException(Exception exception);
+    delegate bool OnUnhandledExceptionHandler(Exception exception);
 
     Task<IUIThread> StartAsync(
-        OnStop? onStop = default,
-        OnUnhandledException? onUnhandledException = default
+        OnUnhandledExceptionHandler? onUnhandledException = default
     );
 }
 
@@ -27,6 +25,8 @@ public interface IUIThread : IDisposable, IAsyncDisposable
     ValueTask CancelAsync();
     ValueTask<TResult> DispatchAsync<TResult>(Func<IWindowManager, TResult> item);
 
+    delegate void InactivatedEventHandler();
+    event InactivatedEventHandler OnInactivated;
 }
 
 public interface IWindowManager

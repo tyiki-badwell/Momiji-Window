@@ -47,10 +47,28 @@ public partial class UIThreadTest : IDisposable
         return configuration;
     }
 
+    private partial class DummyWindowManager(bool empty) : IWindowManagerInternal
+    {
+        public IWindowClassManager WindowClassManager => throw new NotImplementedException();
+        public IWindowProcedure WindowProcedure => throw new NotImplementedException();
+        public bool IsEmpty => empty;
+        public void CloseAll() {}
+        public IWindow CreateWindow(IWindowManager.CreateWindowParameter parameter) => throw new NotImplementedException();
+        public ValueTask<TResult> DispatchAsync<TResult>(Func<IWindow, TResult> item, IWindowInternal window) => throw new NotImplementedException();
+        public void Dispose() => throw new NotImplementedException();
+        public int GenerateChildId(IWindowInternal window) => throw new NotImplementedException();
+    }
+
     [TestMethod]
     public async Task TestDispatchAsyncOK()
     {
-        using var thread = new UIThread(_loggerFactory);
+        var uiThreadChecker = new UIThreadActivator(_loggerFactory);
+        using var thread = new UIThread(
+            _loggerFactory,
+            uiThreadChecker,
+            new DispatcherQueue(_loggerFactory, uiThreadChecker),
+            new DummyWindowManager(true)
+        );
 
         using var cts = new CancellationTokenSource();
         var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
@@ -82,7 +100,13 @@ public partial class UIThreadTest : IDisposable
     [TestMethod]
     public async Task TestDispatchAsyncFail()
     {
-        using var thread = new UIThread(_loggerFactory);
+        var uiThreadChecker = new UIThreadActivator(_loggerFactory);
+        using var thread = new UIThread(
+            _loggerFactory,
+            uiThreadChecker,
+            new DispatcherQueue(_loggerFactory, uiThreadChecker),
+            new DummyWindowManager(true)
+        );
 
         try
         {
@@ -119,7 +143,13 @@ public partial class UIThreadTest : IDisposable
         Task? task = null;
 
         {
-            var thread = new UIThread(_loggerFactory);
+            var uiThreadChecker = new UIThreadActivator(_loggerFactory);
+            using var thread = new UIThread(
+                _loggerFactory,
+                uiThreadChecker,
+                new DispatcherQueue(_loggerFactory, uiThreadChecker),
+                new DummyWindowManager(true)
+            );
 
             var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 

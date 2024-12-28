@@ -5,13 +5,17 @@ using Momiji.Internal.Util;
 
 namespace Momiji.Core.Window;
 
-internal interface IDispatcherQueue
+internal interface IDispatcherQueue : IDisposable
 {
     void Dispatch(SendOrPostCallback callback, object? param);
     ValueTask<TResult> DispatchAsync<TResult>(Func<TResult> func);
+    WaitHandle WaitHandle { get; }
+    void DispatchQueue();
+
+    event IUIThreadFactory.OnUnhandledExceptionHandler OnUnhandledException;
 }
 
-internal sealed partial class DispatcherQueue : IDispatcherQueue, IDisposable
+internal sealed partial class DispatcherQueue : IDispatcherQueue
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -24,14 +28,13 @@ internal sealed partial class DispatcherQueue : IDispatcherQueue, IDisposable
     private DispatcherQueueSynchronizationContext DispatcherQueueSynchronizationContext { get; }
     private IUIThreadChecker UIThreadChecker { get; }
 
-    internal WaitHandle WaitHandle => _queueEvent.WaitHandle;
+    public WaitHandle WaitHandle => _queueEvent.WaitHandle;
 
-    private readonly IUIThreadFactory.OnUnhandledException? _onUnhandledException;
+    public event IUIThreadFactory.OnUnhandledExceptionHandler? OnUnhandledException;
 
     internal DispatcherQueue(
         ILoggerFactory loggerFactory,
-        IUIThreadChecker uiThreadChecker,
-        IUIThreadFactory.OnUnhandledException? onUnhandledException = default
+        IUIThreadChecker uiThreadChecker
     )
     {
         _loggerFactory = loggerFactory;
@@ -40,7 +43,6 @@ internal sealed partial class DispatcherQueue : IDispatcherQueue, IDisposable
         UIThreadChecker.OnInactivated += OnInactivated;
 
         DispatcherQueueSynchronizationContext = new(_loggerFactory, this);
-        _onUnhandledException = onUnhandledException;
     }
 
     ~DispatcherQueue()
@@ -133,7 +135,7 @@ internal sealed partial class DispatcherQueue : IDispatcherQueue, IDisposable
         _queueEvent.Set();
     }
 
-    internal void DispatchQueue()
+    public void DispatchQueue()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -169,7 +171,7 @@ internal sealed partial class DispatcherQueue : IDispatcherQueue, IDisposable
             {
                 _logger.LogWithLine(LogLevel.Error, e, "Invoke error", Environment.CurrentManagedThreadId);
 
-                var handled = _onUnhandledException?.Invoke(e);
+                var handled = OnUnhandledException?.Invoke(e);
 
                 if (!(handled.HasValue && handled.Value))
                 {

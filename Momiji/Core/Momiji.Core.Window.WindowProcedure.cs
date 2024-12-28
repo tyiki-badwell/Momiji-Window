@@ -8,7 +8,7 @@ using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
-internal interface IWindowProcedure
+internal interface IWindowProcedure : IDisposable
 {
     nint FunctionPointer { get; }
 
@@ -44,7 +44,7 @@ internal interface IWindowProcedure
 
 }
 
-internal sealed partial class WindowProcedure : IWindowProcedure, IDisposable
+internal sealed partial class WindowProcedure : IWindowProcedure
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
@@ -242,6 +242,11 @@ internal sealed partial class WindowProcedure : IWindowProcedure, IDisposable
         nint hInst
     )
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        //UIスレッドで呼び出す必要アリ
+        UIThreadChecker.ThrowIfCalledFromOtherThread();
+
         _logger.LogWithLine(LogLevel.Trace, $"CreateWindowEx {dwExStyle} {style}", Environment.CurrentManagedThreadId);
 
         //DPI awareness 

@@ -137,7 +137,7 @@ internal sealed partial class NativeWindow : NativeWindowBase
 
     internal NativeWindow(
         ILoggerFactory loggerFactory,
-        WindowManager windowManager,
+        IWindowManagerInternal windowManager,
         IWindowManager.CreateWindowParameter parameter
     ): base(loggerFactory, windowManager)
     {
@@ -293,7 +293,7 @@ internal sealed partial class SubClassNativeWindow : NativeWindowBase
 
     internal SubClassNativeWindow(
         ILoggerFactory loggerFactory,
-        WindowManager windowManager,
+        IWindowManagerInternal windowManager,
         User32.HWND childHWnd
     ) : base(loggerFactory, windowManager)
     {

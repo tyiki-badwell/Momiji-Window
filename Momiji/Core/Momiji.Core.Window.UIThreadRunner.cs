@@ -1,10 +1,15 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using System.Runtime.ExceptionServices;
+using Microsoft.Extensions.Logging;
 using Momiji.Internal.Log;
 
 namespace Momiji.Core.Window;
 
 internal interface IUIThreadRunner: IDisposable, IAsyncDisposable
 {
+    delegate void OnStopHandler(IUIThreadRunner sender, Exception? exception);
+    event OnStopHandler OnStop;
+
+    Task<IUIThread> StartAsync();
 }
 
 internal sealed partial class UIThreadRunner : IUIThreadRunner
@@ -13,17 +18,16 @@ internal sealed partial class UIThreadRunner : IUIThreadRunner
     private readonly ILogger _logger;
     private bool _disposed;
 
-    private readonly Task _processTask;
+    private CancellationTokenSource? _processCancel;
+    private Task? _processTask;
 
-    private readonly CancellationTokenSource _processCancel;
-    private readonly IUIThreadFactory.OnStop? _onStop;
-    private readonly IUIThreadFactory.OnUnhandledException? _onUnhandledException;
+    public event IUIThreadRunner.OnStopHandler? OnStop;
+
+    private readonly IUIThreadFactory.OnUnhandledExceptionHandler? _onUnhandledException;
 
     internal UIThreadRunner(
         ILoggerFactory loggerFactory,
-        TaskCompletionSource<IUIThread> startTcs,
-        IUIThreadFactory.OnStop? onStop = default,
-        IUIThreadFactory.OnUnhandledException? onUnhandledException = default
+        IUIThreadFactory.OnUnhandledExceptionHandler? onUnhandledException = default
     )
     {
         ArgumentNullException.ThrowIfNull(loggerFactory);
@@ -31,12 +35,7 @@ internal sealed partial class UIThreadRunner : IUIThreadRunner
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<UIThreadRunner>();
 
-        _onStop = onStop;
         _onUnhandledException = onUnhandledException;
-
-        _processCancel = new CancellationTokenSource();
-
-        _processTask = Start(startTcs);
     }
 
     ~UIThreadRunner()
@@ -78,22 +77,18 @@ internal sealed partial class UIThreadRunner : IUIThreadRunner
     private async ValueTask DisposeAsyncCore()
     {
         _logger.LogWithLine(LogLevel.Trace, "DisposeAsync start", Environment.CurrentManagedThreadId);
-        try
-        {
-            await CancelAsync().ConfigureAwait(false);
-        }
-        finally
-        {
-            //_desktop?.Close();
-            //_windowStation?.Close();
-            //WindowContext.Dispose();
-            _processCancel.Dispose();
-        }
+        await CancelAsync().ConfigureAwait(false);
         _logger.LogWithLine(LogLevel.Trace, "DisposeAsync end", Environment.CurrentManagedThreadId);
     }
 
     private async Task CancelAsync()
     {
+        if ((_processCancel == default) || (_processTask == default))
+        {
+            _logger.LogWithLine(LogLevel.Trace, "already stopped.", Environment.CurrentManagedThreadId);
+            return;
+        }
+
         if (_processCancel.IsCancellationRequested)
         {
             _logger.LogWithLine(LogLevel.Information, "already cancelled.", Environment.CurrentManagedThreadId);
@@ -104,6 +99,7 @@ internal sealed partial class UIThreadRunner : IUIThreadRunner
             _processCancel.Cancel();
         }
 
+        Exception? unhandledException = default;
         try
         {
             await _processTask.ConfigureAwait(ConfigureAwaitOptions.None);
@@ -111,51 +107,82 @@ internal sealed partial class UIThreadRunner : IUIThreadRunner
         catch (Exception e)
         {
             _logger.LogWithLine(LogLevel.Error, e, "failed.", Environment.CurrentManagedThreadId);
-            _onUnhandledException?.Invoke(e);
+            unhandledException = e;
         }
-    }
 
-    private async Task Start(
-        TaskCompletionSource<IUIThread> startTcs //TODO IProgressの方が良い？
-    )
-    {
-        //TODO task作りすぎ？
-
-        var tcs = new TaskCompletionSource(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
-
-        try
+        if (unhandledException != default)
         {
             try
             {
-                await Run(startTcs).ConfigureAwait(ConfigureAwaitOptions.None);
-                _logger.LogWithLine(LogLevel.Information, $"process task end [process:{_processTask?.Status}]", Environment.CurrentManagedThreadId);
-
-                //TODO このタスクでcontinue withすると、UIスレッドでQueue登録してスレッド終了し、QueueのCOMアクセスが失敗する
-
-                _logger.LogWithLine(LogLevel.Trace, "call on stop", Environment.CurrentManagedThreadId);
-                _onStop?.Invoke(default);
-
-                tcs.SetResult();
+                _logger.LogWithLine(LogLevel.Trace, "call onUnhandledException", Environment.CurrentManagedThreadId);
+                _onUnhandledException?.Invoke(unhandledException);
             }
             catch (Exception e)
             {
-                //_processTaskのエラー状態を伝播する
-                _logger.LogWithLine(LogLevel.Trace, e, "error on stop", Environment.CurrentManagedThreadId);
-                _onStop?.Invoke(e);
-
-                throw;
+                _logger.LogWithLine(LogLevel.Error, e, "onUnhandledException failed.", Environment.CurrentManagedThreadId);
             }
+        }
+    }
+
+    public async Task<IUIThread> StartAsync()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (_processCancel != default)
+        {
+            throw new InvalidOperationException("already started.");
+        }
+        _processCancel = new CancellationTokenSource();
+
+        var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+        _processTask = Start(tcs).ContinueWith((task) => {
+            _logger.LogWithLine(LogLevel.Trace, "process task continue with start", Environment.CurrentManagedThreadId);
+            
+            _processTask = default;
+
+            _processCancel.Dispose();
+            _processCancel = default;
+
+            _logger.LogWithLine(LogLevel.Trace, "process task continue with end", Environment.CurrentManagedThreadId);
+        });
+
+        return await tcs.Task;
+    }
+
+    private async Task Start(
+        TaskCompletionSource<IUIThread> startTcs
+    )
+    {
+        Exception? runException = default;
+        try
+        {
+            await Run(startTcs).ConfigureAwait(ConfigureAwaitOptions.None);
+            _logger.LogWithLine(LogLevel.Information, $"process task end [process:{_processTask?.Status}]", Environment.CurrentManagedThreadId);
+
+            //NOTE このタスクでcontinue withすると、UIスレッドでQueue登録してスレッド終了し、QueueのCOMアクセスが失敗する
         }
         catch (Exception e)
         {
-            tcs.SetException(e);
-        }
-        finally
-        {
-            _logger.LogWithLine(LogLevel.Information, "stopped.", Environment.CurrentManagedThreadId);
+            runException = e;
         }
 
-        await tcs.Task.ConfigureAwait(ConfigureAwaitOptions.None);
+        try
+        {
+            _logger.LogWithLine(LogLevel.Trace, "call onStop", Environment.CurrentManagedThreadId);
+            OnStop?.Invoke(this, runException);
+        }
+        catch (Exception e)
+        {
+            _logger.LogWithLine(LogLevel.Error, e, "onStop failed.", Environment.CurrentManagedThreadId);
+        }
+
+        _logger.LogWithLine(LogLevel.Information, "stopped.", Environment.CurrentManagedThreadId);
+
+        if (runException != default)
+        {
+            //_processTaskのエラー状態を伝播する
+            ExceptionDispatchInfo.Throw(runException);
+        }
     }
 
     private Task Run(
@@ -169,19 +196,27 @@ internal sealed partial class UIThreadRunner : IUIThreadRunner
 
             try
             {
+                //TODO scopeから取り出す
+
+                var uiThreadChecker = new UIThreadActivator(_loggerFactory);
+                using var dispatcherQueue = new DispatcherQueue(_loggerFactory, uiThreadChecker);
+                dispatcherQueue.OnUnhandledException += _onUnhandledException;
+                using var windowManager = new WindowManager(_loggerFactory, uiThreadChecker, dispatcherQueue);
+
                 await using var uiThread = new UIThread(
-                    _loggerFactory, 
-                    _onUnhandledException
+                    _loggerFactory,
+                    uiThreadChecker,
+                    dispatcherQueue,
+                    windowManager
                 );
 
-                uiThread.RunMessageLoop(startTcs, _processCancel.Token);
+                uiThread.RunMessageLoop(startTcs, _processCancel!.Token);
 
                 _logger.LogWithLine(LogLevel.Information, "message loop normal end.", Environment.CurrentManagedThreadId);
-
-                //TODO DispatcherQueueをdisposeした後でSendOrPostCallbackが呼ばれる場合がある. 待つ方法？
             }
             catch (Exception e)
             {
+                //TODO エラーになるケースがあるか？
                 _logger.LogWithLine(LogLevel.Error, e, "message loop abnormal end.", Environment.CurrentManagedThreadId);
 
                 startTcs.TrySetException(e);
