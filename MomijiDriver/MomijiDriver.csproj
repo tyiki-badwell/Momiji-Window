@@ -17,7 +17,8 @@
     
     <Platforms>x64</Platforms>
 
-    <WindowsPackageType>none</WindowsPackageType>
+    <WindowsPackageType>None</WindowsPackageType>
+    <EnableMsixTooling>true</EnableMsixTooling>
   </PropertyGroup>
 
   <ItemGroup>
