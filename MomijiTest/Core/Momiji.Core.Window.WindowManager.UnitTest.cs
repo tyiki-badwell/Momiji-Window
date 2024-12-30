@@ -64,7 +64,9 @@ public partial class WindowManagerTest : IDisposable
     {
         public WaitHandle WaitHandle => throw new NotImplementedException();
 
+#pragma warning disable CS0067
         public event IUIThreadFactory.OnUnhandledExceptionHandler? OnUnhandledException;
+#pragma warning restore CS0067
 
         public void Dispatch(SendOrPostCallback callback, object? param) => throw new NotImplementedException();
 #pragma warning disable CS1998 // 非同期メソッドは、'await' 演算子がないため、同期的に実行されます

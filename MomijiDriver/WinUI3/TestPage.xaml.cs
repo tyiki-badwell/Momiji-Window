@@ -6,8 +6,20 @@ using Microsoft.UI.Xaml.Controls;
 namespace Momiji.Driver;
 public sealed partial class TestPage : UserControl
 {
+    public ViewModel ViewModel { get; } = new();
+
     public TestPage()
     {
         InitializeComponent();
     }
+}
+
+public class Model
+{
+    public string Text { get; } = "test.";
+}
+
+public class ViewModel
+{
+    public Model Model { get; } = new();
 }
