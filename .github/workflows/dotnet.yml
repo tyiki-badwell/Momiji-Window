@@ -9,18 +9,17 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    strategy:
+      matrix:
+        architecture: [x86, x64]
     steps:
     - uses: actions/checkout@v7
     - name: Setup .NET
       uses: actions/setup-dotnet@v6
       with:
-        dotnet-version: |
-          10.x.x
-        global-json-file: |
-          "./global.json"
-        architecture: |
-          x86
-          x64
+        dotnet-version: 10.x.x
+        global-json-file: "./global.json"
+        architecture: ${{ matrix.architecture }}
     - name: Restore dependencies
       run: dotnet restore
     - name: Build
