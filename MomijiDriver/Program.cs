@@ -40,7 +40,8 @@ public partial class Worker : BackgroundService
     public Worker(
         ILogger<Worker> logger,
         IHostApplicationLifetime hostApplicationLifetime,
-        IServiceScopeFactory serviceScopeFactory
+        IServiceScopeFactory serviceScopeFactory,
+        IOnUnhandledExceptionHandler onUnhandledExceptionHandler
     )
     {
         _logger = logger;
@@ -58,6 +59,13 @@ public partial class Worker : BackgroundService
         {
             _logger.LogInformation("ApplicationStopped");
         });
+
+        onUnhandledExceptionHandler.OnUnhandledException += (sender, exception) =>
+        {
+            _logger.LogError(exception, "OnUnhandledException");
+
+            return false;
+        };
     }
 
     protected async override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -65,9 +73,11 @@ public partial class Worker : BackgroundService
         _logger.LogInformation("ExecuteAsync");
 
         using var scope = _serviceScopeFactory.CreateScope();
+        var f = scope.ServiceProvider.GetRequiredService<IUIThreadFactory>();
+        var h = scope.ServiceProvider.GetRequiredService<IOnUnhandledExceptionHandler>();
 
-        var a = scope.ServiceProvider.GetRequiredService<IUIThread>();
-        var b = scope.ServiceProvider.GetRequiredService<IUIThread>();
+        var a = await f.StartAsync();
+        var b = await f.StartAsync();
 
         var classStyle = 0;
         classStyle |= 0x00000020; //CS_OWNDC
@@ -88,7 +98,7 @@ public partial class Worker : BackgroundService
         childStyle |= 0x40000000; //WS_CHILD
         childStyle |= 0x10000000; //WS_VISIBLE
 
-        var dispatcherQueueController = await a.DispatchAsync((manager) => {
+        var dispatcherQueueController = await a.EnqueueAsync((manager) => {
             _logger.LogInformation("thread A: DispatcherQueueController.CreateOnCurrentThread");
             return Microsoft.UI.Dispatching.DispatcherQueueController.CreateOnCurrentThread();
         });
@@ -251,7 +261,7 @@ public partial class Worker : BackgroundService
         });
 
 
-        await windowA.DispatchAsync((window) => 
+        await windowA.EnqueueAsync((window) => 
         {
             //WinUI3コンテンツを挿入する
             xamlSource = new DesktopWindowXamlSource();
@@ -304,9 +314,17 @@ public partial class Worker : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+            }
+            catch (TaskCanceledException)
+            {
+            }
         }
     }
+
+    private bool H_OnUnhandledException(Exception exception) => throw new NotImplementedException();
 
     public async override Task StopAsync(CancellationToken stoppingToken)
     {
