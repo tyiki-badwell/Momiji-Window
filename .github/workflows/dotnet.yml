@@ -18,7 +18,7 @@ jobs:
       uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.x.x
-        global-json-file: "./global.json"
+        global-json-file: global.json
         architecture: ${{ matrix.architecture }}
     - name: Restore dependencies
       run: dotnet restore
