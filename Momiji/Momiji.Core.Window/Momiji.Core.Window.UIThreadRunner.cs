@@ -1,0 +1,246 @@
+﻿using System.Runtime.ExceptionServices;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Momiji.Internal.Window;
+
+namespace Momiji.Core.Window;
+
+internal interface IUIThreadRunner : IDisposable, IAsyncDisposable
+{
+    delegate void OnStopHandler(IUIThreadRunner sender, Exception? exception);
+    event OnStopHandler OnStop;
+
+    Task<IUIThread> StartAsync();
+}
+
+internal sealed partial class UIThreadRunner : IUIThreadRunner
+{
+    private bool _disposed;
+    private readonly ILogger<UIThreadRunner> _logger;
+
+    private readonly IServiceScopeFactory _serviceScopeFactory;
+
+    private CancellationTokenSource? _processCancel;
+    private Task? _processTask;
+
+    public event IUIThreadRunner.OnStopHandler? OnStop;
+
+    private readonly IOnUnhandledExceptionHandler _onUnhandledExceptionHandler;
+
+    public UIThreadRunner(
+        ILogger<UIThreadRunner> logger,
+        IServiceScopeFactory serviceScopeFactory,
+        IOnUnhandledExceptionHandler onUnhandledExceptionHandler
+    )
+    {
+        ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(serviceScopeFactory);
+        ArgumentNullException.ThrowIfNull(onUnhandledExceptionHandler);
+
+        _logger = logger;
+
+        _serviceScopeFactory = serviceScopeFactory;
+
+        _onUnhandledExceptionHandler = onUnhandledExceptionHandler;
+    }
+
+    ~UIThreadRunner()
+    {
+        Dispose(false);
+    }
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    private void Dispose(bool disposing)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (disposing)
+        {
+            _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
+            DisposeAsyncCore().AsTask().GetAwaiter().GetResult();
+        }
+
+        _disposed = true;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await DisposeAsyncCore().ConfigureAwait(false);
+
+        Dispose(false);
+
+        GC.SuppressFinalize(this);
+    }
+
+    private async ValueTask DisposeAsyncCore()
+    {
+        _logger.LogWithLine(LogLevel.Trace, "DisposeAsync start", Environment.CurrentManagedThreadId);
+        await CancelAsync().ConfigureAwait(false);
+        _logger.LogWithLine(LogLevel.Trace, "DisposeAsync end", Environment.CurrentManagedThreadId);
+    }
+
+    private async Task CancelAsync()
+    {
+        if ((_processCancel == default) || (_processTask == default))
+        {
+            _logger.LogWithLine(LogLevel.Trace, "already stopped.", Environment.CurrentManagedThreadId);
+            return;
+        }
+
+        if (_processCancel.IsCancellationRequested)
+        {
+            _logger.LogWithLine(LogLevel.Information, "already cancelled.", Environment.CurrentManagedThreadId);
+        }
+        else
+        {
+            _logger.LogWithLine(LogLevel.Information, "cancel.", Environment.CurrentManagedThreadId);
+            _processCancel.Cancel();
+        }
+
+        Exception? unhandledException = default;
+        try
+        {
+            await _processTask.ConfigureAwait(ConfigureAwaitOptions.None);
+        }
+        catch (Exception e)
+        {
+            _logger.LogWithLine(LogLevel.Error, e, "failed.", Environment.CurrentManagedThreadId);
+            unhandledException = e;
+        }
+
+        if (unhandledException != default)
+        {
+            try
+            {
+                _logger.LogWithLine(LogLevel.Trace, "call onUnhandledException", Environment.CurrentManagedThreadId);
+
+                //TODO 未ハンドルチェックする？
+                var _ = _onUnhandledExceptionHandler.DoUnhandledException(unhandledException);
+            }
+            catch (Exception e)
+            {
+                _logger.LogWithLine(LogLevel.Error, e, "onUnhandledException failed.", Environment.CurrentManagedThreadId);
+            }
+        }
+    }
+
+    public async Task<IUIThread> StartAsync()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (_processCancel != default)
+        {
+            throw new InvalidOperationException("already started.");
+        }
+        _processCancel = new CancellationTokenSource();
+
+        var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+        _processTask = Start(tcs).ContinueWith((task) => {
+            _logger.LogWithLine(LogLevel.Trace, "process task continue with start", Environment.CurrentManagedThreadId);
+            
+            _processTask = default;
+
+            _processCancel.Dispose();
+            _processCancel = default;
+
+            _logger.LogWithLine(LogLevel.Trace, "process task continue with end", Environment.CurrentManagedThreadId);
+        });
+
+        return await tcs.Task;
+    }
+
+    private async Task Start(
+        TaskCompletionSource<IUIThread> startTcs
+    )
+    {
+        Exception? runException = default;
+        try
+        {
+            await Run(startTcs).ConfigureAwait(ConfigureAwaitOptions.None);
+            if (_logger.IsEnabled(LogLevel.Information))
+            {
+                _logger.LogWithLine(LogLevel.Information, $"process task end [process:{_processTask?.Status}]", Environment.CurrentManagedThreadId);
+            }
+
+            //NOTE このタスクでcontinue withすると、UIスレッドでQueue登録してスレッド終了し、QueueのCOMアクセスが失敗する
+        }
+        catch (Exception e)
+        {
+            runException = e;
+        }
+
+        try
+        {
+            _logger.LogWithLine(LogLevel.Trace, "call onStop", Environment.CurrentManagedThreadId);
+            OnStop?.Invoke(this, runException);
+        }
+        catch (Exception e)
+        {
+            _logger.LogWithLine(LogLevel.Error, e, "onStop failed.", Environment.CurrentManagedThreadId);
+        }
+
+        _logger.LogWithLine(LogLevel.Information, "stopped.", Environment.CurrentManagedThreadId);
+
+        if (runException != default)
+        {
+            //_processTaskのエラー状態を伝播する
+            ExceptionDispatchInfo.Throw(runException);
+        }
+    }
+
+    private Task Run(
+        TaskCompletionSource<IUIThread> startTcs
+    )
+    {
+        var tcs = new TaskCompletionSource(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(async () =>
+        {
+            _logger.LogWithLine(LogLevel.Information, "*** thread start ***", Environment.CurrentManagedThreadId);
+
+            try
+            {
+                //scopeから取り出す
+                using var scope = _serviceScopeFactory.CreateScope();
+                var uiThread = scope.ServiceProvider.GetRequiredService<IUIThreadInternal>();
+
+                uiThread.RunMessageLoop(startTcs, _processCancel!.Token);
+
+                _logger.LogWithLine(LogLevel.Information, "message loop normal end.", Environment.CurrentManagedThreadId);
+            }
+            catch (Exception e)
+            {
+                //TODO エラーになるケースがあるか？
+                _logger.LogWithLine(LogLevel.Error, e, "message loop abnormal end.", Environment.CurrentManagedThreadId);
+
+                startTcs.TrySetException(e);
+                tcs.SetException(e);
+            }
+
+            tcs.TrySetResult();
+
+            _logger.LogWithLine(LogLevel.Information, "*** thread end ***", Environment.CurrentManagedThreadId);
+        })
+        {
+            IsBackground = false,
+            Name = "Momiji UI Thread"
+        };
+
+        //TODO MTAも指定可能にしてみる？
+        thread.SetApartmentState(ApartmentState.STA);
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            _logger.LogWithLine(LogLevel.Information, $"GetApartmentState {thread.GetApartmentState()}", Environment.CurrentManagedThreadId);
+        }
+        thread.Start();
+
+        return tcs.Task;
+    }
+}
