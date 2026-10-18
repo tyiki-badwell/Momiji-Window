@@ -47,17 +47,11 @@ public partial class UIThreadRunnerTest
         var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
         var logger = loggerFactory.CreateLogger<UIThreadRunnerTest>();
         var factory = host.Services.GetRequiredService<IServiceScopeFactory>();
-        var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
 
-        using var uiThreadRunner = new UIThreadRunner(
+        var uiThreadRunner = new UIThreadRunner(
             loggerFactory.CreateLogger<UIThreadRunner>(),
-            factory, 
-            onUnhandledExceptionHandler
+            factory
         );
-        var uiThread = await uiThreadRunner.StartAsync();
-
-        var result = await uiThread.EnqueueAsync((manager) => { return 999; });
-        Assert.AreEqual(999, result);
     }
 
     [TestMethod]
@@ -67,14 +61,12 @@ public partial class UIThreadRunnerTest
         var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
         var logger = loggerFactory.CreateLogger<UIThreadRunnerTest>();
         var factory = host.Services.GetRequiredService<IServiceScopeFactory>();
-        var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
-
+        
         using var mre = new ManualResetEventSlim(false);
 
-        using var uiThreadRunner = new UIThreadRunner(
+        var uiThreadRunner = new UIThreadRunner(
             loggerFactory.CreateLogger<UIThreadRunner>(),
-            factory, 
-            onUnhandledExceptionHandler
+            factory
         );
         
         uiThreadRunner.OnStop += (sender, e) => {
@@ -84,17 +76,11 @@ public partial class UIThreadRunnerTest
 
         try
         {
-            var uiThread = await uiThreadRunner.StartAsync();
-            try
-            {
-                //２重起動はさせない
-                var uiThread2 = await uiThreadRunner.StartAsync();
-                Assert.Fail();
-            }
-            finally
-            {
-                await uiThread.CancelAsync();
-            }
+            var (uiThread1, processTask1) = await uiThreadRunner.StartAsync();
+            var (uiThread2, processTask2) = await uiThreadRunner.StartAsync();
+
+            await uiThread1.CancelAsync();
+            await uiThread2.CancelAsync();
         }
         catch (InvalidOperationException e)
         {
@@ -106,18 +92,6 @@ public partial class UIThreadRunnerTest
         mre.Wait();
         logger.LogInformation("mre end");
 
-
-        try
-        {
-            //UIスレッドが終わっていれば、もう一度起動できる
-            var uiThread = await uiThreadRunner.StartAsync();
-        }
-        catch (InvalidOperationException e)
-        {
-            //OK
-            logger.LogInformation(e, "error occurred");
-        }
-
     }
 
 
@@ -128,19 +102,17 @@ public partial class UIThreadRunnerTest
         var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
         var logger = loggerFactory.CreateLogger<UIThreadRunnerTest>();
         var factory = host.Services.GetRequiredService<IServiceScopeFactory>();
-        var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
 
-        using var uiThreadRunner = new UIThreadRunner(
+        var uiThreadRunner = new UIThreadRunner(
             loggerFactory.CreateLogger<UIThreadRunner>(),
-            factory, 
-            onUnhandledExceptionHandler
+            factory
         );
 
         uiThreadRunner.OnStop += (sender, e) => {
             throw new Exception("ON STOP ERROR", e);
         };
 
-        var uiThread = await uiThreadRunner.StartAsync();
+        var (uiThread, processTask) = await uiThreadRunner.StartAsync();
 
         try
         {
@@ -156,7 +128,7 @@ public partial class UIThreadRunnerTest
         try
         {
             //UIスレッドが耐える
-            var window = uiThread.CreateWindow(new()
+            var window = await uiThread.CreateWindowAsync(new()
             {
                 onMessage = (sender, message) => {
                     throw new Exception($"ON MESSAGE ERROR {message}");
@@ -167,38 +139,8 @@ public partial class UIThreadRunnerTest
         {
             logger.LogInformation(e, "message error occurred");
         }
-    }
 
-    [TestMethod]
-    public async Task TestAccessDisposedObject()
-    {
-        using var host = Setup();
-        var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
-        var logger = loggerFactory.CreateLogger<UIThreadRunnerTest>();
-        var factory = host.Services.GetRequiredService<IServiceScopeFactory>();
-        var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
-
-        IUIThread? uiThread = default;
-        {
-            using var uiThreadRunner = new UIThreadRunner(
-                loggerFactory.CreateLogger<UIThreadRunner>(),
-                factory, 
-                onUnhandledExceptionHandler
-            );
-            uiThread = await uiThreadRunner.StartAsync();
-        }
-
-        try
-        {
-            await uiThread.EnqueueAsync((manager) => {
-                return 0;
-            });
-            Assert.Fail();
-        }
-        catch (Exception e)
-        {
-            logger.LogInformation(e, "dispatch error occurred");
-        }
+        await uiThread.CancelAsync();
     }
 
 }

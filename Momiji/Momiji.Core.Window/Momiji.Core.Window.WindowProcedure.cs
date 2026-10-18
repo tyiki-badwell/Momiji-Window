@@ -102,8 +102,9 @@ internal sealed partial class WindowProcedure : IWindowProcedure
 
     private void Dispose(bool disposing)
     {
-        if (_disposed)
+        if (Interlocked.CompareExchange(ref _disposed, true, false) == true)
         {
+            _logger.LogWithLine(LogLevel.Information, "already disposed", Environment.CurrentManagedThreadId);
             return;
         }
 
@@ -114,8 +115,6 @@ internal sealed partial class WindowProcedure : IWindowProcedure
             _wndProc.Dispose();
             _subWndProc.Dispose();
         }
-
-        _disposed = true;
     }
 
     private void OnInactivated()

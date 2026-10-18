@@ -165,8 +165,9 @@ internal sealed partial class NativeWindow(
 
     protected override void Dispose(bool disposing)
     {
-        if (_disposed)
+        if (Interlocked.CompareExchange(ref _disposed, true, false) == true)
         {
+            Logger.LogWithLine(LogLevel.Information, "already disposed", Environment.CurrentManagedThreadId);
             return;
         }
 
@@ -187,8 +188,6 @@ internal sealed partial class NativeWindow(
                 Logger.LogWithHWnd(LogLevel.Trace, $"DestroyWindow OK", HWND, Environment.CurrentManagedThreadId);
             }
         }
-
-        _disposed = true;
     }
 
     public override string ToString()
@@ -259,33 +258,26 @@ internal sealed partial class NativeWindow(
             }
         }
 
-        // メッセージループに移行してからCreateWindowする
-        var task = EnqueueAsync((window) =>
+        var handle = WindowManager.WindowProcedure.CreateWindow(
+            exStyle,
+            WindowClass!.ClassName,
+            windowTitle,
+            style,
+            x,
+            y,
+            width,
+            height,
+            parentHWnd,
+            hMenu,
+            WindowClass!.HInstance
+        );
+
+        if (HWND.Handle == User32.HWND.None.Handle)
         {
-            var handle = WindowManager.WindowProcedure.CreateWindow(
-                exStyle,
-                WindowClass!.ClassName,
-                windowTitle,
-                style,
-                x,
-                y,
-                width,
-                height,
-                parentHWnd,
-                hMenu,
-                WindowClass!.HInstance
-            );
+            Logger.LogWithHWnd(LogLevel.Trace, "assign handle (after CreateWindow)", handle, Environment.CurrentManagedThreadId);
+            HWND = handle;
+        }
 
-            if (HWND.Handle == User32.HWND.None.Handle)
-            {
-                Logger.LogWithHWnd(LogLevel.Trace, "assign handle (after CreateWindow)", handle, Environment.CurrentManagedThreadId);
-                HWND = handle;
-            }
-
-            return handle;
-        });
-
-        var handle = task.AsTask().GetAwaiter().GetResult();
         Debug.Assert(handle.Handle == HWND.Handle);
 
         Logger.LogWithHWnd(LogLevel.Information, "CreateWindow end", HWND, Environment.CurrentManagedThreadId);
@@ -337,8 +329,9 @@ internal sealed partial class SubClassNativeWindow : NativeWindowBase
 
     protected override void Dispose(bool disposing)
     {
-        if (_disposed)
+        if (Interlocked.CompareExchange(ref _disposed, true, false) == true)
         {
+            Logger.LogWithLine(LogLevel.Information, "already disposed", Environment.CurrentManagedThreadId);
             return;
         }
 
@@ -439,8 +432,9 @@ internal sealed partial class SubClassNativeWindow2 : NativeWindowBase
 
     protected override void Dispose(bool disposing)
     {
-        if (_disposed)
+        if (Interlocked.CompareExchange(ref _disposed, true, false) == true)
         {
+            Logger.LogWithLine(LogLevel.Information, "already disposed", Environment.CurrentManagedThreadId);
             return;
         }
 

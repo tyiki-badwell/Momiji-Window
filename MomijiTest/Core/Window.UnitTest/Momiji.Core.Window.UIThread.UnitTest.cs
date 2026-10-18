@@ -43,6 +43,7 @@ public partial class UIThreadUnitTest
         var dispatcherQueueTaskExecutor = host.Services.GetRequiredService<IDispatcherQueueTaskExecutor>();
         var context = host.Services.GetRequiredService<IDispatcherQueueSynchronizationContext>();
         var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
+        var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
 
         using var thread = new UIThread(
             loggerFactory,
@@ -50,7 +51,8 @@ public partial class UIThreadUnitTest
             dispatcherQueue,
             dispatcherQueueTaskExecutor,
             context,
-            windowManager
+            windowManager,
+            onUnhandledExceptionHandler
         );
     }
 
@@ -64,6 +66,7 @@ public partial class UIThreadUnitTest
         var dispatcherQueueTaskExecutor = host.Services.GetRequiredService<IDispatcherQueueTaskExecutor>();
         var context = host.Services.GetRequiredService<IDispatcherQueueSynchronizationContext>();
         var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
+        var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
 
         await using var thread = new UIThread(
             loggerFactory,
@@ -71,7 +74,8 @@ public partial class UIThreadUnitTest
             dispatcherQueue,
             dispatcherQueueTaskExecutor,
             context,
-            windowManager
+            windowManager,
+            onUnhandledExceptionHandler
         );
     }
 
@@ -85,6 +89,7 @@ public partial class UIThreadUnitTest
         var dispatcherQueueTaskExecutor = host.Services.GetRequiredService<IDispatcherQueueTaskExecutor>();
         var context = host.Services.GetRequiredService<IDispatcherQueueSynchronizationContext>();
         var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
+        var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
 
         await using var thread = new UIThread(
             loggerFactory,
@@ -92,7 +97,8 @@ public partial class UIThreadUnitTest
             dispatcherQueue,
             dispatcherQueueTaskExecutor,
             context,
-            windowManager
+            windowManager,
+            onUnhandledExceptionHandler
         );
 
         await thread.CancelAsync();
@@ -113,6 +119,7 @@ public partial class UIThreadUnitTest
                 var dispatcherQueueTaskExecutor = host.Services.GetRequiredService<IDispatcherQueueTaskExecutor>();
                 var context = host.Services.GetRequiredService<IDispatcherQueueSynchronizationContext>();
                 var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
+                var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
 
                 var _ = new UIThread(
                     loggerFactory,
@@ -120,7 +127,8 @@ public partial class UIThreadUnitTest
                     dispatcherQueue,
                     dispatcherQueueTaskExecutor,
                     context,
-                    windowManager
+                    windowManager,
+                    onUnhandledExceptionHandler
                 );
             }
 
@@ -142,6 +150,7 @@ public partial class UIThreadUnitTest
         var dispatcherQueueTaskExecutor = host.Services.GetRequiredService<IDispatcherQueueTaskExecutor>();
         var context = host.Services.GetRequiredService<IDispatcherQueueSynchronizationContext>();
         var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
+        var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
 
         var thread = new UIThread(
             loggerFactory,
@@ -149,7 +158,8 @@ public partial class UIThreadUnitTest
             dispatcherQueue,
             dispatcherQueueTaskExecutor,
             context,
-            windowManager
+            windowManager,
+            onUnhandledExceptionHandler
         );
         thread.Dispose();
         thread.Dispose();
@@ -167,6 +177,7 @@ public partial class UIThreadUnitTest
         var dispatcherQueueTaskExecutor = host.Services.GetRequiredService<IDispatcherQueueTaskExecutor>();
         var context = host.Services.GetRequiredService<IDispatcherQueueSynchronizationContext>();
         var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
+        var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
 
         using var thread = new UIThread(
             loggerFactory,
@@ -174,7 +185,8 @@ public partial class UIThreadUnitTest
             dispatcherQueue,
             dispatcherQueueTaskExecutor,
             context,
-            windowManager
+            windowManager,
+            onUnhandledExceptionHandler
         );
 
         using var cts = new CancellationTokenSource();
@@ -216,6 +228,7 @@ public partial class UIThreadUnitTest
         var dispatcherQueueTaskExecutor = host.Services.GetRequiredService<IDispatcherQueueTaskExecutor>();
         var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
         var context = host.Services.GetRequiredService<IDispatcherQueueSynchronizationContext>();
+        var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
 
         using var thread = new UIThread(
             loggerFactory,
@@ -223,25 +236,26 @@ public partial class UIThreadUnitTest
             dispatcherQueue,
             dispatcherQueueTaskExecutor,
             context,
-            windowManager
+            windowManager,
+            onUnhandledExceptionHandler
         );
+
+        using var cts = new CancellationTokenSource();
+        var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var task = Task.Run(() =>
+        {
+            thread.RunMessageLoop(tcs, cts.Token);
+            logger.LogInformation("loop end");
+        });
+
+        var uiThread = await tcs.Task;
+
+        cts.Cancel();
+        await task;
 
         try
         {
-            using var cts = new CancellationTokenSource();
-            var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
-
-            var task = Task.Run(() =>
-            {
-                thread.RunMessageLoop(tcs, cts.Token);
-                logger.LogInformation("loop end");
-            });
-
-            var uiThread = await tcs.Task;
-
-            cts.Cancel();
-            await task;
-
             var result = await Task.Run(async () =>
             {
                 return await uiThread.EnqueueAsync((manager) => 1);
@@ -270,6 +284,7 @@ public partial class UIThreadUnitTest
             var dispatcherQueueTaskExecutor = host.Services.GetRequiredService<IDispatcherQueueTaskExecutor>();
             var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
             var context = host.Services.GetRequiredService<IDispatcherQueueSynchronizationContext>();
+            var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
 
             using var thread = new UIThread(
                 loggerFactory,
@@ -277,7 +292,8 @@ public partial class UIThreadUnitTest
                 dispatcherQueue,
                 dispatcherQueueTaskExecutor,
                 context,
-                windowManager
+                windowManager,
+                onUnhandledExceptionHandler
             );
 
             var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);

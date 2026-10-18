@@ -69,7 +69,7 @@ public interface IWindowManager
         }
     }
 
-    IWindow CreateWindow(
+    ValueTask<IWindow> CreateWindowAsync(
         CreateWindowParameter parameter
     );
 

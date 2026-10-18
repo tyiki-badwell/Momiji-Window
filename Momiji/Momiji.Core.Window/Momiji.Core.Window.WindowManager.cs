@@ -15,7 +15,7 @@ internal interface IWindowManagerInternal : IWindowManager
 {
     IWindowClassManager WindowClassManager { get; }
     IWindowProcedure WindowProcedure { get; }
-    ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindow, TResult> item, IWindowInternal window);
+    ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindowInternal, TResult> item, IWindowInternal window);
     int GenerateChildId(IWindowInternal window);
     nuint GenerateSubclassId();
     void CloseAll();
@@ -90,8 +90,9 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
 
     private void Dispose(bool disposing)
     {
-        if (_disposed)
+        if (Interlocked.CompareExchange(ref _disposed, true, false) == true)
         {
+            _logger.LogWithLine(LogLevel.Information, "already disposed", Environment.CurrentManagedThreadId);
             return;
         }
 
@@ -104,8 +105,6 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
             WindowProcedure.OnWindowMessage -= OnWindowMessage;
             WindowProcedure.OnThreadMessage -= OnThreadMessage;
         }
-
-        _disposed = true;
     }
 
     internal readonly ref struct SwitchThreadDpiAwarenessContextPerMonitorAwareV2RAII
@@ -147,7 +146,7 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
         }
     }
 
-    private TResult InvokeWithContext<TResult>(Func<IWindow, TResult> func, IWindowInternal window)
+    private TResult InvokeWithContext<TResult>(Func<IWindowInternal, TResult> func, IWindowInternal window)
     {
         //TODO スレッドセーフになっているか要確認(再入しても問題ないなら気にしない)
         //TODO 何かのコンテキストに移す
@@ -246,7 +245,7 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
         _windowMap.Clear();
     }
 
-    public IWindow CreateWindow(
+    public async ValueTask<IWindow> CreateWindowAsync(
         IWindowManager.CreateWindowParameter parameter
     )
     {
@@ -259,22 +258,24 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
         };
         try
         {
-            window.Initialize(parameter_);
+            return await EnqueueAsync((window) =>
+            {
+                window.Initialize(parameter_);
+                return window;
+            }, window);
         }
         catch (Exception e)
         {
             _logger.LogWithLine(LogLevel.Error, e, "Initialize failed.", Environment.CurrentManagedThreadId);
             throw;
         }
-
-        return window;
     }
 
-    public async ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindow, TResult> item, IWindowInternal window)
+    public async ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindowInternal, TResult> item, IWindowInternal window)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        _logger.LogWithLine(LogLevel.Trace, "DispatchAsync", Environment.CurrentManagedThreadId);
+        _logger.LogWithLine(LogLevel.Trace, "EnqueueAsync", Environment.CurrentManagedThreadId);
 
         TResult func()
         {

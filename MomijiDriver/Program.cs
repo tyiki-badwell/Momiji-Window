@@ -111,7 +111,7 @@ public partial class Worker : BackgroundService
         //TODO IWindowにプロパティ増やす
         DesktopWindowXamlSource? xamlSource = default;
 
-        var windowA = a.CreateWindow(new()
+        var windowA = await a.CreateWindowAsync(new()
         {
             windowTitle = "windowA",
             classStyle = classStyle, 
@@ -141,7 +141,7 @@ public partial class Worker : BackgroundService
                         await Task.Delay(1000);
                         _logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] delay end ===============================");
 
-                        a.CreateWindow(new()
+                        await a.CreateWindowAsync(new()
                         {
                             windowTitle = $"window{Guid.NewGuid()}",
                             classStyle = classStyle,
@@ -155,12 +155,12 @@ public partial class Worker : BackgroundService
             }
         });
 
-        var windowB = b.CreateWindow(new() { 
+        var windowB = await b.CreateWindowAsync(new() { 
             windowTitle = "windowB",
             style = windowStyle,
         });
 
-        var buttonA = a.CreateWindow(new()
+        var buttonA = await a.CreateWindowAsync(new()
         {
             windowTitle = "buttonA",
             parent = windowA,
@@ -212,7 +212,7 @@ public partial class Worker : BackgroundService
             }
         });
 
-        var textA = a.CreateWindow(new()
+        var textA = await a.CreateWindowAsync(new()
         {
             windowTitle = "textA",
             parent = windowA,
@@ -224,7 +224,7 @@ public partial class Worker : BackgroundService
             }
         });
 
-        var buttonB = b.CreateWindow(new()
+        var buttonB = await b.CreateWindowAsync(new()
         {
             windowTitle = "buttonB",
             parent = windowB,
@@ -235,7 +235,7 @@ public partial class Worker : BackgroundService
                 _logger.LogInformation($"       buttonB:{message}");
             }
         });
-        var textB = b.CreateWindow(new()
+        var textB = await b.CreateWindowAsync(new()
         {
             windowTitle = "textB",
             parent = windowB,
@@ -248,7 +248,7 @@ public partial class Worker : BackgroundService
         });
 
         //BスレッドからAウインドウにボタン追加
-        var buttonC = b.CreateWindow(new()
+        var buttonC = await b.CreateWindowAsync(new()
         {
             windowTitle = "buttonC",
             parent = windowA,
@@ -301,16 +301,16 @@ public partial class Worker : BackgroundService
             return 0;
         });
 
-        buttonA.Move(10, 10, 200, 80, true);
-        textA.Move(10, 300, 200, 80, true);
+        await buttonA.MoveAsync(10, 10, 200, 80, true);
+        await textA.MoveAsync(10, 300, 200, 80, true);
 
-        buttonC.Move(300, 100, 200, 80, true);
+        await buttonC.MoveAsync(300, 100, 200, 80, true);
 
-        windowA.Show(1);
+        await windowA.ShowAsync(1);
 
-        buttonB.Move(10, 10, 200, 80, true);
-        textB.Move(10, 300, 200, 80, true);
-        windowB.Show(1);
+        await buttonB.MoveAsync(10, 10, 200, 80, true);
+        await textB.MoveAsync(10, 300, 200, 80, true);
+        await windowB.ShowAsync(1);
 
         while (!stoppingToken.IsCancellationRequested)
         {

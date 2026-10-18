@@ -38,7 +38,7 @@ public partial class WindowIntegrationTest
             var threadFactory = host.Services.GetRequiredService<IUIThreadFactory>();
             var thread = await threadFactory.StartAsync();
 
-            var window = await thread.EnqueueAsync((manager) => manager.CreateWindow(new() { classStyle = 0x9999 }));
+            var window = await thread.CreateWindowAsync(new() { classStyle = 0x9999 });
 
             Assert.Fail("エラーが発生しなかった");
         }
@@ -62,7 +62,7 @@ public partial class WindowIntegrationTest
         var threadFactory = host.Services.GetRequiredService<IUIThreadFactory>();
         var thread = await threadFactory.StartAsync();
 
-        var window = await thread.EnqueueAsync((manager) => manager.CreateWindow(new()));
+        var window = await thread.CreateWindowAsync(new());
         await window.MoveAsync(0, 0, 100, 100, true);
         await window.ShowAsync(1);
         await window.MoveAsync(100, 100, 100, 100, true);
@@ -94,7 +94,7 @@ public partial class WindowIntegrationTest
         var threadFactory = host.Services.GetRequiredService<IUIThreadFactory>();
         var thread = await threadFactory.StartAsync();
 
-        var window = await thread.EnqueueAsync((manager) => manager.CreateWindow(new()));
+        var window = await thread.CreateWindowAsync(new());
 
         await window.EnqueueAsync((window) => { window.Close(); return 0; });
     }
@@ -115,7 +115,7 @@ public partial class WindowIntegrationTest
 
         var canClose = false;
 
-        var window = await thread.EnqueueAsync((manager) => manager.CreateWindow(new()
+        var window = await thread.CreateWindowAsync(new()
         {
             onMessage = (sender, message) =>
             {
@@ -131,7 +131,7 @@ public partial class WindowIntegrationTest
                         break;
                 }
             }
-        }));
+        });
         await window.ShowAsync(1);
 
         //canClose:false
@@ -156,15 +156,15 @@ public partial class WindowIntegrationTest
         var threadFactory = host.Services.GetRequiredService<IUIThreadFactory>();
         var thread = await threadFactory.StartAsync();
 
-        var window = await thread.EnqueueAsync((manager) => manager.CreateWindow(new()
+        var window = await thread.CreateWindowAsync(new()
         {
-            onMessage = (sender, message) =>
+            onMessage = async (sender, message) =>
             {
                 logger.LogInformation($"on message {message}");
 
                 if (message.Msg == 0x0001) //WM_CREATE
                 {
-                    var child = manager.CreateWindow(new()
+                    var child = await thread.CreateWindowAsync(new()
                     {
                         parent = sender,
                         style = 0x40000000, //WS_CHILD
@@ -176,7 +176,7 @@ public partial class WindowIntegrationTest
                     });
                 }
             }
-        }));
+        });
     }
 
     [TestMethod]
@@ -193,9 +193,9 @@ public partial class WindowIntegrationTest
 
         try
         {
-            var window = await thread.EnqueueAsync((manager) => manager.CreateWindow(new()
+            var window = await thread.CreateWindowAsync(new()
             {
-                onMessage = (sender, message) =>
+                onMessage = async (sender, message) =>
                 {
                     logger.LogInformation($"on message {message}");
 
@@ -204,7 +204,7 @@ public partial class WindowIntegrationTest
                         try
                         {
                             //*** async でイベントを作っているとWM_CREATEでエラーにできない
-                            var child = manager.CreateWindow(new()
+                            var child = await thread.CreateWindowAsync(new()
                             {
                                 parent = sender,
                                 style = 0x40000000, //WS_CHILD
@@ -222,7 +222,7 @@ public partial class WindowIntegrationTest
                         }
                     }
                 }
-            }));
+            });
 
             Assert.Fail("エラーが発生しなかった");
         }
@@ -368,7 +368,7 @@ public partial class WindowIntegrationTest
                 return result;
             };
 
-            var window = await thread.EnqueueAsync((manager) => manager.CreateWindow(new()
+            var window = await thread.CreateWindowAsync(new()
             {
                 onMessage = async (sender, message) =>
                 {
@@ -398,7 +398,7 @@ public partial class WindowIntegrationTest
                         message.Result = message.LParam;
                     }
                 }
-            }));
+            });
 
             {
                 var result = await call(start, window, 1, 2);
@@ -565,7 +565,7 @@ public partial class WindowIntegrationTest
         var threadFactory = host.Services.GetRequiredService<IUIThreadFactory>();
         var thread = await threadFactory.StartAsync();
 
-        var window = await thread.EnqueueAsync((manager) => manager.CreateWindow(new()));
+        var window = await thread.CreateWindowAsync(new());
 
         await window.SetWindowStyleAsync(0);
 
@@ -590,7 +590,7 @@ public partial class WindowIntegrationTest
         var threadFactory = host.Services.GetRequiredService<IUIThreadFactory>();
         var thread = await threadFactory.StartAsync();
 
-        var window = await thread.EnqueueAsync((manager) => manager.CreateWindow(new()));
+        var window = await thread.CreateWindowAsync(new());
 
         {
             logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] Dispatch 1 put ===============================");
@@ -615,7 +615,7 @@ public partial class WindowIntegrationTest
         var threadFactory = host.Services.GetRequiredService<IUIThreadFactory>();
         var thread = await threadFactory.StartAsync();
 
-        var window = await thread.EnqueueAsync((manager) => manager.CreateWindow(new()));
+        var window = await thread.CreateWindowAsync(new());
 
         {
             logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] Dispatch 2 put ===============================");
@@ -658,7 +658,7 @@ public partial class WindowIntegrationTest
         var threadFactory = host.Services.GetRequiredService<IUIThreadFactory>();
         var thread = await threadFactory.StartAsync();
 
-        var window = await thread.EnqueueAsync((manager) => manager.CreateWindow(new()));
+        var window = await thread.CreateWindowAsync(new());
 
         {
             logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] Dispatch 4 put ===============================");
@@ -692,7 +692,7 @@ public partial class WindowIntegrationTest
 
         using var cde = new CountdownEvent(1);
 
-        var window = await thread.EnqueueAsync((manager) => manager.CreateWindow(new()
+        var window = await thread.CreateWindowAsync(new()
         {
             onMessage = async (sender, message) =>
             {
@@ -745,7 +745,7 @@ public partial class WindowIntegrationTest
                     cde.Signal();
                 }
             }
-        }));
+        });
 
         var result = window.SendMessage(0, 1, 2);
 
@@ -786,7 +786,7 @@ public partial class WindowIntegrationTest
 
         var thread = await threadFactory.StartAsync();
 
-        var window = await thread.EnqueueAsync((manager) => manager.CreateWindow(new()
+        var window = await thread.CreateWindowAsync(new()
         {
             onMessage = async (sender, message) =>
             {
@@ -825,7 +825,7 @@ public partial class WindowIntegrationTest
                     logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] dispatch end[{result}] ===============================[{SynchronizationContext.Current}]");
                 }
             }
-        }));
+        });
 
         var result = window.SendMessage(0, 1, 2);
 
@@ -848,16 +848,16 @@ public partial class WindowIntegrationTest
         var threadA = await threadFactory.StartAsync();
         var threadB = await threadFactory.StartAsync();
 
-        var windowA = await threadA.EnqueueAsync((manager) => manager.CreateWindow(new()
+        var windowA = await threadA.CreateWindowAsync(new()
         {
             windowTitle = "windowA",
             onMessage = (sender, message) =>
             {
                 logger.LogInformation($"PARENT on message {message}");
             }
-        }));
+        });
 
-        var buttonA = await threadA.EnqueueAsync((manager) => manager.CreateWindow(new()
+        var buttonA = await threadA.CreateWindowAsync(new()
         {
             windowTitle = "buttonA",
             parent = windowA,
@@ -867,9 +867,9 @@ public partial class WindowIntegrationTest
             {
                 logger.LogInformation($"CHILD A on message {message}");
             }
-        }));
+        });
 
-        var windowAA = await threadA.EnqueueAsync((manager) => manager.CreateWindow(new()
+        var windowAA = await threadA.CreateWindowAsync(new()
         {
             windowTitle = "windowAA",
             parent = windowA,
@@ -878,9 +878,9 @@ public partial class WindowIntegrationTest
             {
                 logger.LogInformation($"CHILD W on message {message}");
             }
-        }));
+        });
 
-        var buttonB = await threadB.EnqueueAsync((manager) => manager.CreateWindow(new()
+        var buttonB = await threadB.CreateWindowAsync(new()
         {
             windowTitle = "buttonB",
             parent = windowA,
@@ -890,7 +890,7 @@ public partial class WindowIntegrationTest
             {
                 logger.LogInformation($"CHILD B on message {message}");
             }
-        }));
+        });
 
         await Task.Delay(1000);
     }

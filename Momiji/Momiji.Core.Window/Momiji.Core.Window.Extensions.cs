@@ -10,22 +10,14 @@ namespace Momiji.Core.Window;
 
 public static class IUIThreadExtensions
 {
-    public static IWindow CreateWindow(
-        this IUIThread uiThread,
-        IWindowManager.CreateWindowParameter parameter
-    )
-    {
-        return uiThread.CreateWindowAsync(parameter).AsTask().GetAwaiter().GetResult();
-    }
-
     public static async ValueTask<IWindow> CreateWindowAsync(
         this IUIThread uiThread,
         IWindowManager.CreateWindowParameter parameter
     )
     {
-        return await uiThread.EnqueueAsync(
+        return await await uiThread.EnqueueAsync(
             (manager) => 
-            manager.CreateWindow(
+            manager.CreateWindowAsync(
                 parameter
             )
         );
@@ -43,24 +35,6 @@ public static class IWindowExtensions
             nint.Zero,
             nint.Zero
         );
-    }
-
-    public static bool Move(
-        this IWindow window,
-        int x,
-        int y,
-        int width,
-        int height,
-        bool repaint
-    )
-    {
-        return window.MoveAsync(
-            x,
-            y,
-            width,
-            height,
-            repaint
-        ).AsTask().GetAwaiter().GetResult();
     }
 
     public static async ValueTask<bool> MoveAsync(
@@ -113,16 +87,6 @@ public static class IWindowExtensions
             window.Logger.LogWithHWndAndError(LogLevel.Error, "MoveWindow", window.HWND, error.ToString(), Environment.CurrentManagedThreadId);
         }
         return result;
-    }
-
-    public static bool Show(
-        this IWindow window,
-        int cmdShow
-    )
-    {
-        return window.ShowAsync(
-            cmdShow
-        ).AsTask().GetAwaiter().GetResult();
     }
 
     public static async ValueTask<bool> ShowAsync(
@@ -179,16 +143,6 @@ public static class IWindowExtensions
         }
 
         return result;
-    }
-
-    public static bool SetWindowStyle(
-        this IWindow window,
-        int style
-    )
-    {
-        return window.SetWindowStyleAsync(
-            style
-        ).AsTask().GetAwaiter().GetResult();
     }
 
     public static async ValueTask<bool> SetWindowStyleAsync(
@@ -280,7 +234,7 @@ public static class IHostBuilderExtensions
             services.AddSingleton<IUIThreadFactory, UIThreadFactory>();
             services.AddSingleton<IOnUnhandledExceptionHandler, OnUnhandledExceptionHandler>();
 
-            services.AddTransient<IUIThreadRunner, UIThreadRunner>();
+            services.AddSingleton<IUIThreadRunner, UIThreadRunner>();
 
             services.AddScoped<IUIThreadInternal, UIThread>();
             services.AddScoped<IUIThreadActivator, UIThreadActivator>();

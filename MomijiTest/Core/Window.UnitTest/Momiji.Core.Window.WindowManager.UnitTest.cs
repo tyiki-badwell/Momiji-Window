@@ -183,14 +183,14 @@ public partial class WindowManagerUnitTest
 
 
     [TestMethod]
-    public void TestCreateWindow()
+    public async Task TestCreateWindow()
     {
         using var host = Setup();
         var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
         var logger = loggerFactory.CreateLogger<WindowManagerUnitTest>();
         var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
 
-        var window = windowManager.CreateWindow(new() { 
+        var window = await windowManager.CreateWindowAsync(new() { 
             onMessage = (sender, message) => {
                 if (message.Msg == 0)
                 {

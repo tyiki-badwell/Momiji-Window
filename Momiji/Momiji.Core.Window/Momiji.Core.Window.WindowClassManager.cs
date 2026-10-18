@@ -52,8 +52,9 @@ internal sealed partial class WindowClassManager : IWindowClassManager
 
     private void Dispose(bool disposing)
     {
-        if (_disposed)
+        if (Interlocked.CompareExchange(ref _disposed, true, false) == true)
         {
+            _logger.LogWithLine(LogLevel.Information, "already disposed", Environment.CurrentManagedThreadId);
             return;
         }
 
@@ -68,8 +69,6 @@ internal sealed partial class WindowClassManager : IWindowClassManager
             }
             _windowClassMap.Clear();
         }
-
-        _disposed = true;
     }
 
     public IWindowClass QueryWindowClass(

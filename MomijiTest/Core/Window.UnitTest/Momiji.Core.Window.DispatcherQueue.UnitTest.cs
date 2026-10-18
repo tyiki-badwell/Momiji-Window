@@ -187,7 +187,7 @@ public partial class DispatcherQueueUnitTest
     }
 
     [TestMethod]
-    public async Task TestDispatchAsync()
+    public async Task TestEnqueueAsync()
     {
         using var host = Setup();
         var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
@@ -226,11 +226,16 @@ public partial class DispatcherQueueUnitTest
                 return queue.EnqueueAsync(() => { return 2; });
             });
 
-            queue.TryDequeue(out var item);
-
-            if (item is Action action)
+            if (queue.TryDequeue(out var item))
             {
-                action();
+                if (item is Action action)
+                {
+                    action();
+                }
+                else
+                {
+                    Assert.Fail();
+                }
             }
             else
             {
@@ -247,15 +252,20 @@ public partial class DispatcherQueueUnitTest
                 return queue.EnqueueAsync(() => { throw new Exception("2"); return 2; });
             });
 
-            queue.TryDequeue(out var item);
-
-            if (item is Action action)
+            if (queue.TryDequeue(out var item))
             {
-                action();
+                if (item is Action action)
+                {
+                    action();
+                }
+                else
+                {
+                    Assert.Fail(item.GetType().ToString());
+                }
             }
             else
             {
-                Assert.Fail(item!.GetType().ToString());
+                Assert.Fail();
             }
 
             var exception = "0";

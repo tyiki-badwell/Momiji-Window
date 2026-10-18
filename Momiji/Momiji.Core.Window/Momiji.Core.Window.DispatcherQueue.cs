@@ -57,8 +57,9 @@ internal sealed partial class DispatcherQueue : IDispatcherQueue
 
     private void Dispose(bool disposing)
     {
-        if (_disposed)
+        if (Interlocked.CompareExchange(ref _disposed, true, false) == true)
         {
+            _logger.LogWithLine(LogLevel.Information, "already disposed", Environment.CurrentManagedThreadId);
             return;
         }
 
@@ -73,14 +74,15 @@ internal sealed partial class DispatcherQueue : IDispatcherQueue
                 _logger.LogWithLine(LogLevel.Warning, $"queue left count {_queue.Count}", Environment.CurrentManagedThreadId);
             }
         }
-
-        _disposed = true;
     }
 
     private void OnInactivated()
     {
         _logger.LogWithLine(LogLevel.Trace, "OnInactivated", Environment.CurrentManagedThreadId);
-        //TODO 何かする？
+        if (_logger.IsEnabled(LogLevel.Trace))
+        {
+            _logger.LogWithLine(LogLevel.Trace, $"left [{Count}]", Environment.CurrentManagedThreadId);
+        }
     }
 
     public async ValueTask<TResult> EnqueueAsync<TResult>(Func<TResult> func)
@@ -129,6 +131,12 @@ internal sealed partial class DispatcherQueue : IDispatcherQueue
         ObjectDisposedException.ThrowIf(_disposed, this);
         _uiThreadActivator.ThrowIfNoActive();
 
+        if (_uiThreadActivator.IsActivatedThread)
+        {
+            //TODO 同一スレッドからならQueueに入れないようにする？
+            _logger.LogWithLine(LogLevel.Trace, "★EnqueueAsync called from same thread id.", Environment.CurrentManagedThreadId);
+        }
+
         _logger.LogWithLine(LogLevel.Trace, "Enqueue Action", Environment.CurrentManagedThreadId);
         _queue.Enqueue(action);
         OnEnqueue?.Invoke();
@@ -138,6 +146,12 @@ internal sealed partial class DispatcherQueue : IDispatcherQueue
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         _uiThreadActivator.ThrowIfNoActive();
+
+        if (_uiThreadActivator.IsActivatedThread)
+        {
+            //TODO 同一スレッドからならQueueに入れないようにする？
+            _logger.LogWithLine(LogLevel.Trace, "★EnqueueAsync called from same thread id.", Environment.CurrentManagedThreadId);
+        }
 
         _logger.LogWithLine(LogLevel.Trace, "Enqueue SendOrPostCallback", Environment.CurrentManagedThreadId);
         _queue.Enqueue((callback, param));

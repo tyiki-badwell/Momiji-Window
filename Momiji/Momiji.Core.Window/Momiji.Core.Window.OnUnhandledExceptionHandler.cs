@@ -30,13 +30,36 @@ internal partial class OnUnhandledExceptionHandler : IOnUnhandledExceptionHandle
 
     public bool DoUnhandledException(Exception exception)
     {
-        return OnUnhandledException?.Invoke(this, exception) ?? false;
+        if (OnUnhandledException == null)
+        {
+            return false;
+        }
+
+        var handled = false;
+        var list = OnUnhandledException.GetInvocationList().ToList();
+        foreach (var item in list)
+        {
+            if (item is IOnUnhandledExceptionHandler.OnUnhandledExceptionHandler handler)
+            {
+                try
+                {
+                    handled = handler(this, exception);
+                }
+                catch (Exception e)
+                {
+                    _logger.LogWithLine(LogLevel.Information, e, "Error occurred while handling unhandled exception", Environment.CurrentManagedThreadId);
+                }
+            }
+        }
+
+        return handled;
     }
 
     private void Dispose(bool disposing)
     {
-        if (_disposed)
+        if (Interlocked.CompareExchange(ref _disposed, true, false) == true)
         {
+            _logger.LogWithLine(LogLevel.Information, "already disposed", Environment.CurrentManagedThreadId);
             return;
         }
 
@@ -47,8 +70,6 @@ internal partial class OnUnhandledExceptionHandler : IOnUnhandledExceptionHandle
             _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
 
         }
-
-        _disposed = true;
     }
 
 }

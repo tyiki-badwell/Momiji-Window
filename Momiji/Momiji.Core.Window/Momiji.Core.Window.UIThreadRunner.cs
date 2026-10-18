@@ -5,156 +5,44 @@ using Momiji.Internal.Window;
 
 namespace Momiji.Core.Window;
 
-internal interface IUIThreadRunner : IDisposable, IAsyncDisposable
+internal interface IUIThreadRunner
 {
+    //TODO IUIThreadも渡すようにする
     delegate void OnStopHandler(IUIThreadRunner sender, Exception? exception);
     event OnStopHandler OnStop;
 
-    Task<IUIThread> StartAsync();
+    Task<(IUIThread, Task)> StartAsync();
 }
 
 internal sealed partial class UIThreadRunner : IUIThreadRunner
 {
-    private bool _disposed;
     private readonly ILogger<UIThreadRunner> _logger;
 
     private readonly IServiceScopeFactory _serviceScopeFactory;
 
-    private CancellationTokenSource? _processCancel;
-    private Task? _processTask;
-
     public event IUIThreadRunner.OnStopHandler? OnStop;
-
-    private readonly IOnUnhandledExceptionHandler _onUnhandledExceptionHandler;
 
     public UIThreadRunner(
         ILogger<UIThreadRunner> logger,
-        IServiceScopeFactory serviceScopeFactory,
-        IOnUnhandledExceptionHandler onUnhandledExceptionHandler
+        IServiceScopeFactory serviceScopeFactory
     )
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(serviceScopeFactory);
-        ArgumentNullException.ThrowIfNull(onUnhandledExceptionHandler);
 
         _logger = logger;
 
         _serviceScopeFactory = serviceScopeFactory;
-
-        _onUnhandledExceptionHandler = onUnhandledExceptionHandler;
     }
 
-    ~UIThreadRunner()
+    public async Task<(IUIThread, Task)> StartAsync()
     {
-        Dispose(false);
-    }
-
-    public void Dispose()
-    {
-        Dispose(true);
-        GC.SuppressFinalize(this);
-    }
-
-    private void Dispose(bool disposing)
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        if (disposing)
-        {
-            _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
-            DisposeAsyncCore().AsTask().GetAwaiter().GetResult();
-        }
-
-        _disposed = true;
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        await DisposeAsyncCore().ConfigureAwait(false);
-
-        Dispose(false);
-
-        GC.SuppressFinalize(this);
-    }
-
-    private async ValueTask DisposeAsyncCore()
-    {
-        _logger.LogWithLine(LogLevel.Trace, "DisposeAsync start", Environment.CurrentManagedThreadId);
-        await CancelAsync().ConfigureAwait(false);
-        _logger.LogWithLine(LogLevel.Trace, "DisposeAsync end", Environment.CurrentManagedThreadId);
-    }
-
-    private async Task CancelAsync()
-    {
-        if ((_processCancel == default) || (_processTask == default))
-        {
-            _logger.LogWithLine(LogLevel.Trace, "already stopped.", Environment.CurrentManagedThreadId);
-            return;
-        }
-
-        if (_processCancel.IsCancellationRequested)
-        {
-            _logger.LogWithLine(LogLevel.Information, "already cancelled.", Environment.CurrentManagedThreadId);
-        }
-        else
-        {
-            _logger.LogWithLine(LogLevel.Information, "cancel.", Environment.CurrentManagedThreadId);
-            _processCancel.Cancel();
-        }
-
-        Exception? unhandledException = default;
-        try
-        {
-            await _processTask.ConfigureAwait(ConfigureAwaitOptions.None);
-        }
-        catch (Exception e)
-        {
-            _logger.LogWithLine(LogLevel.Error, e, "failed.", Environment.CurrentManagedThreadId);
-            unhandledException = e;
-        }
-
-        if (unhandledException != default)
-        {
-            try
-            {
-                _logger.LogWithLine(LogLevel.Trace, "call onUnhandledException", Environment.CurrentManagedThreadId);
-
-                //TODO 未ハンドルチェックする？
-                var _ = _onUnhandledExceptionHandler.DoUnhandledException(unhandledException);
-            }
-            catch (Exception e)
-            {
-                _logger.LogWithLine(LogLevel.Error, e, "onUnhandledException failed.", Environment.CurrentManagedThreadId);
-            }
-        }
-    }
-
-    public async Task<IUIThread> StartAsync()
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-
-        if (_processCancel != default)
-        {
-            throw new InvalidOperationException("already started.");
-        }
-        _processCancel = new CancellationTokenSource();
-
         var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
-        _processTask = Start(tcs).ContinueWith((task) => {
-            _logger.LogWithLine(LogLevel.Trace, "process task continue with start", Environment.CurrentManagedThreadId);
-            
-            _processTask = default;
+        var task = Start(tcs);
 
-            _processCancel.Dispose();
-            _processCancel = default;
+        var uiThread = await tcs.Task.ConfigureAwait(false);
 
-            _logger.LogWithLine(LogLevel.Trace, "process task continue with end", Environment.CurrentManagedThreadId);
-        });
-
-        return await tcs.Task;
+        return (uiThread, task);
     }
 
     private async Task Start(
@@ -167,7 +55,7 @@ internal sealed partial class UIThreadRunner : IUIThreadRunner
             await Run(startTcs).ConfigureAwait(ConfigureAwaitOptions.None);
             if (_logger.IsEnabled(LogLevel.Information))
             {
-                _logger.LogWithLine(LogLevel.Information, $"process task end [process:{_processTask?.Status}]", Environment.CurrentManagedThreadId);
+                _logger.LogWithLine(LogLevel.Information, $"process task end.", Environment.CurrentManagedThreadId);
             }
 
             //NOTE このタスクでcontinue withすると、UIスレッドでQueue登録してスレッド終了し、QueueのCOMアクセスが失敗する
@@ -208,10 +96,10 @@ internal sealed partial class UIThreadRunner : IUIThreadRunner
             try
             {
                 //scopeから取り出す
-                using var scope = _serviceScopeFactory.CreateScope();
+                await using var scope = _serviceScopeFactory.CreateAsyncScope();
                 var uiThread = scope.ServiceProvider.GetRequiredService<IUIThreadInternal>();
 
-                uiThread.RunMessageLoop(startTcs, _processCancel!.Token);
+                uiThread.RunMessageLoop(startTcs);
 
                 _logger.LogWithLine(LogLevel.Information, "message loop normal end.", Environment.CurrentManagedThreadId);
             }

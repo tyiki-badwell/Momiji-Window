@@ -35,6 +35,7 @@ public partial class UIThreadIntegrationTest
         var dispatcherQueueTaskExecutor = host.Services.GetRequiredService<IDispatcherQueueTaskExecutor>();
         var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
         var context = host.Services.GetRequiredService<IDispatcherQueueSynchronizationContext>();
+        var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
 
         using var thread = new UIThread(
             loggerFactory,
@@ -42,7 +43,8 @@ public partial class UIThreadIntegrationTest
             dispatcherQueue,
             dispatcherQueueTaskExecutor,
             context,
-            windowManager
+            windowManager,
+            onUnhandledExceptionHandler
         );
 
         using var cts = new CancellationTokenSource();
@@ -84,6 +86,7 @@ public partial class UIThreadIntegrationTest
         var dispatcherQueueTaskExecutor = host.Services.GetRequiredService<IDispatcherQueueTaskExecutor>();
         var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
         var context = host.Services.GetRequiredService<IDispatcherQueueSynchronizationContext>();
+        var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
 
         using var thread = new UIThread(
             loggerFactory,
@@ -91,7 +94,8 @@ public partial class UIThreadIntegrationTest
             dispatcherQueue,
             dispatcherQueueTaskExecutor,
             context,
-            windowManager
+            windowManager,
+            onUnhandledExceptionHandler
         );
 
         try
@@ -138,6 +142,7 @@ public partial class UIThreadIntegrationTest
             var dispatcherQueueTaskExecutor = host.Services.GetRequiredService<IDispatcherQueueTaskExecutor>();
             var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
             var context = host.Services.GetRequiredService<IDispatcherQueueSynchronizationContext>();
+            var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
 
             using var thread = new UIThread(
                 loggerFactory,
@@ -145,7 +150,8 @@ public partial class UIThreadIntegrationTest
                 dispatcherQueue,
                 dispatcherQueueTaskExecutor,
                 context,
-                windowManager
+                windowManager,
+                onUnhandledExceptionHandler
             );
 
             var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);

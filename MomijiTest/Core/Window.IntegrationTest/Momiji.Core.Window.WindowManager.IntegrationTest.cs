@@ -98,7 +98,7 @@ public partial class WindowManagerIntegrationTest
 
 
     [TestMethod]
-    public void TestCreateWindow()
+    public async Task TestCreateWindow()
     {
         using var host = Setup();
         var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
@@ -109,7 +109,7 @@ public partial class WindowManagerIntegrationTest
         //‹N“®
         using var active = uiThreadActivator.Activate();
 
-        var window = windowManager.CreateWindow(new() { 
+        var window = await windowManager.CreateWindowAsync(new() { 
             onMessage = (sender, message) => {
                 if (message.Msg == 0)
                 {
@@ -137,7 +137,4 @@ public partial class WindowManagerIntegrationTest
         //ŒÂ•Ê‚Ìclose‚ÍŽ¸”s‚·‚é‚ª‹–‚µ‚Ä‚¢‚é
         window.Close();
     }
-
-
-
 }

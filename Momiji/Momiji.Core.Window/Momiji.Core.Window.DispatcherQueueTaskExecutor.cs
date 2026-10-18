@@ -57,8 +57,9 @@ internal sealed partial class DispatcherQueueTaskExecutor : IDispatcherQueueTask
 
     private void Dispose(bool disposing)
     {
-        if (_disposed)
+        if (Interlocked.CompareExchange(ref _disposed, true, false) == true)
         {
+            _logger.LogWithLine(LogLevel.Information, "already disposed", Environment.CurrentManagedThreadId);
             return;
         }
 
@@ -67,8 +68,6 @@ internal sealed partial class DispatcherQueueTaskExecutor : IDispatcherQueueTask
             _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
             _uiThreadActivator.OnInactivated -= OnInactivated;
         }
-
-        _disposed = true;
     }
 
     public void DispatchQueue()

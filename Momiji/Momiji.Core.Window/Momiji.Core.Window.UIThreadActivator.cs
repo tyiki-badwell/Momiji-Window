@@ -18,10 +18,27 @@ internal partial class UIThreadActivator(
     ILoggerFactory loggerFactory
     ) : IUIThreadActivator
 {
+    internal enum LifecycleState
+    {
+        Created,
+        Active,
+        Stopping,
+        Stopped
+    }
+
     private readonly ILoggerFactory _loggerFactory = loggerFactory;
+
+    private readonly ILogger<UIThreadActivator> _logger = loggerFactory.CreateLogger<UIThreadActivator>();
+
     private bool _disposed;
 
+    private int _lifecycleState = (int)LifecycleState.Created;
+
+    public LifecycleState LifecycleStateVolatile => (LifecycleState)Volatile.Read(ref _lifecycleState);
+
     internal int _uiThreadId;
+
+    public bool IsActivatedThread => (_uiThreadId == Environment.CurrentManagedThreadId);
 
     public event IUIThreadActivator.InactivatedEventHandler? OnInactivated;
 
@@ -43,8 +60,9 @@ internal partial class UIThreadActivator(
 
     private void Dispose(bool disposing)
     {
-        if (_disposed)
+        if (Interlocked.CompareExchange(ref _disposed, true, false) == true)
         {
+            _logger.LogWithLine(LogLevel.Information, "already disposed", Environment.CurrentManagedThreadId);
             return;
         }
 
@@ -52,17 +70,24 @@ internal partial class UIThreadActivator(
         {
             OnInactivated = null;
         }
+    }
 
-        _disposed = true;
+    private bool LifecycleStateCompareExchange(LifecycleState value, LifecycleState comparand)
+    {
+        return Interlocked.CompareExchange(ref _lifecycleState, (int)value, (int)comparand) != (int)comparand;
     }
 
     public IDisposable Activate()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (LifecycleStateCompareExchange(LifecycleState.Active, LifecycleState.Created))
+        {
+            throw new InvalidOperationException("already activated.");
+        }
+
         return new Token(this);
     }
-
-    public bool IsActivatedThread => (_uiThreadId == Environment.CurrentManagedThreadId);
 
     public void ThrowIfCalledFromOtherThread()
     {
@@ -74,11 +99,22 @@ internal partial class UIThreadActivator(
 
     public void ThrowIfNoActive()
     {
-        if (_uiThreadId == 0)
+        if (LifecycleStateVolatile != LifecycleState.Active)
         {
-            throw new InvalidOperationException($"no active");
+            throw new InvalidOperationException($"no active [{LifecycleStateVolatile}]");
         }
     }
+
+    private void Stopping()
+    {
+        Interlocked.Exchange(ref _lifecycleState, (int)LifecycleState.Stopping);
+    }
+
+    private void Stopped()
+    {
+        Interlocked.Exchange(ref _lifecycleState, (int)LifecycleState.Stopped);
+    }
+
 
     internal partial class Token : IDisposable
     {
@@ -131,10 +167,12 @@ internal partial class UIThreadActivator(
                 {
                     _logger.LogWithLine(LogLevel.Trace, $"Inactivate [uiThreadId:{_activator._uiThreadId}]", Environment.CurrentManagedThreadId);
                 }
+                _activator.Stopping();
                 _activator.OnInactivated?.Invoke();
 
                 _activator._uiThreadId = 0;
                 _activator.NativeThreadId = 0;
+                _activator.Stopped();
             }
 
             _disposed = true;

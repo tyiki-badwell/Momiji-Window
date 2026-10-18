@@ -33,6 +33,7 @@ internal sealed partial class UIThread : IUIThreadInternal
     private readonly IDispatcherQueueTaskExecutor _dispatcherQueueTaskExecutor;
     private readonly IDispatcherQueueSynchronizationContext _dispatcherQueueSynchronizationContext;
     private readonly IWindowManagerInternal _windowManager;
+    private readonly IOnUnhandledExceptionHandler _onUnhandledExceptionHandler;
 
     private readonly ManualResetEventSlim _queueEvent = new();
     public WaitHandle WaitHandle => _queueEvent.WaitHandle;
@@ -44,7 +45,8 @@ internal sealed partial class UIThread : IUIThreadInternal
         IDispatcherQueue dispatcherQueue,
         IDispatcherQueueTaskExecutor dispatcherQueueTaskExecutor,
         IDispatcherQueueSynchronizationContext dispatcherQueueSynchronizationContext,
-        IWindowManagerInternal windowManager
+        IWindowManagerInternal windowManager,
+        IOnUnhandledExceptionHandler onUnhandledExceptionHandler
     )
     {
         ArgumentNullException.ThrowIfNull(loggerFactory);
@@ -53,6 +55,7 @@ internal sealed partial class UIThread : IUIThreadInternal
         ArgumentNullException.ThrowIfNull(dispatcherQueueTaskExecutor);
         ArgumentNullException.ThrowIfNull(dispatcherQueueSynchronizationContext);
         ArgumentNullException.ThrowIfNull(windowManager);
+        ArgumentNullException.ThrowIfNull(onUnhandledExceptionHandler);
 
         _loggerFactory = loggerFactory;
         _logger = _loggerFactory.CreateLogger<UIThread>();
@@ -67,6 +70,8 @@ internal sealed partial class UIThread : IUIThreadInternal
         _dispatcherQueueTaskExecutor = dispatcherQueueTaskExecutor;
         //RTWorkQueueManager = new(configuration, _loggerFactory);
         _windowManager = windowManager;
+
+        _onUnhandledExceptionHandler = onUnhandledExceptionHandler;
     }
 
     ~UIThread()
@@ -82,15 +87,44 @@ internal sealed partial class UIThread : IUIThreadInternal
 
     private void Dispose(bool disposing)
     {
-        if (_disposed)
+        if (Interlocked.CompareExchange(ref _disposed, true, false) == true)
         {
+            _logger.LogWithLine(LogLevel.Information, "already disposed", Environment.CurrentManagedThreadId);
             return;
         }
 
         if (disposing)
         {
             _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
-            DisposeAsyncCore().AsTask().GetAwaiter().GetResult();
+            var task = DisposeAsyncCore().AsTask();
+
+            //TODO 仮処理
+            try
+            {
+                var retry = 5;
+                while (retry-- > 0)
+                {
+                    if (task.Wait(1000))
+                    {
+                        break;
+                    }
+                }
+
+                if (!task.IsCompleted)
+                {
+                    throw new InvalidOperationException("process task is not completed.");
+                }
+
+                task.GetAwaiter().GetResult();
+            }
+            catch (Exception e)
+            {
+                _logger.LogWithLine(LogLevel.Error, e, "failed.", Environment.CurrentManagedThreadId);
+                if (!_onUnhandledExceptionHandler.DoUnhandledException(e))
+                {
+                    _logger.LogWithLine(LogLevel.Error, e, "onUnhandledException failed.", Environment.CurrentManagedThreadId);
+                }
+            }
 
             _uiThreadActivator.OnInactivated -= OnInactivatedBridge;
             _cts.Dispose();
@@ -99,7 +133,6 @@ internal sealed partial class UIThread : IUIThreadInternal
             _queueEvent.Dispose();
         }
 
-        _disposed = true;
     }
 
     public async ValueTask DisposeAsync()
@@ -265,7 +298,10 @@ internal sealed partial class UIThread : IUIThreadInternal
                 var _ =
                     Task.Delay(10000, CancellationToken.None)
                     .ContinueWith(
-                        (task) => { forceCancel = true; },
+                        (task) => {
+                            _logger.LogWithLine(LogLevel.Warning, "forceCancel", Environment.CurrentManagedThreadId);
+                            forceCancel = true; 
+                        },
                         TaskScheduler.Default
                     );
             }
