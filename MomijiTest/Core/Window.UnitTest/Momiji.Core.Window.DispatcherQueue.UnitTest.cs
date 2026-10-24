@@ -199,18 +199,26 @@ public partial class DispatcherQueueUnitTest
             uiThreadActivator
         );
 
+        using var mre = new ManualResetEventSlim();
+        queue.OnEnqueue += () =>
+        {
+            mre.Set();
+        };
+
         {
             var task = queue.EnqueueAsync(() => { return 1; });
-            var result = await task;
+            var result = await task.ConfigureAwait(false);
             Assert.AreEqual(1, result);
         }
 
-        {
+        { // immediate mode
+#pragma warning disable CS0162 // 到達できないコードが検出されました
             var task = queue.EnqueueAsync(() => { throw new Exception("1"); return 1; });
+#pragma warning restore CS0162 // 到達できないコードが検出されました
             var exception = "0";
             try
             {
-                var result = await task;
+                var result = await task.ConfigureAwait(false);
                 Assert.Fail();
             }
             catch (Exception e)
@@ -220,11 +228,33 @@ public partial class DispatcherQueueUnitTest
             Assert.AreEqual("1", exception);
         }
 
+        async Task<Task<Task<int>>> thread(Func<Task<int>> action)
         {
-            var task = await Task.Run(() => {
-                Task.Delay(500).Wait();
-                return queue.EnqueueAsync(() => { return 2; });
+            var tcs = new TaskCompletionSource<Task<int>>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+            var thread = new Thread(async () =>
+            {
+                tcs.TrySetResult(action());
+            })
+            {
+                IsBackground = false
+            };
+            thread.Start();
+
+            return tcs.Task;
+        }
+
+        { // async mode
+
+            var task = thread(() => {
+                var task = queue.EnqueueAsync(() => { return 2; });
+                return task.AsTask();
             });
+
+            if (!mre.Wait(500))
+            {
+                Assert.Fail();
+            }
+            mre.Reset();
 
             if (queue.TryDequeue(out var item))
             {
@@ -242,15 +272,23 @@ public partial class DispatcherQueueUnitTest
                 Assert.Fail();
             }
 
-            var result = await task;
+            var result = await await await task.ConfigureAwait(false);
             Assert.AreEqual(2, result);
         }
 
         {
-            var task = await Task.Run(() => {
-                Task.Delay(500).Wait();
-                return queue.EnqueueAsync(() => { throw new Exception("2"); return 2; });
+            var task = thread(() => {
+#pragma warning disable CS0162 // 到達できないコードが検出されました
+                var task = queue.EnqueueAsync(() => { throw new Exception("2"); return 2; });
+#pragma warning restore CS0162 // 到達できないコードが検出されました
+                return task.AsTask();
             });
+
+            if (!mre.Wait(500))
+            {
+                Assert.Fail();
+            }
+            mre.Reset();
 
             if (queue.TryDequeue(out var item))
             {
@@ -271,7 +309,7 @@ public partial class DispatcherQueueUnitTest
             var exception = "0";
             try
             {
-                var result = await task;
+                var result = await await await task.ConfigureAwait(false);
             }
             catch (Exception e)
             {
