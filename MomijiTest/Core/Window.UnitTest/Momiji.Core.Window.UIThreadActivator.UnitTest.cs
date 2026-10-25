@@ -104,9 +104,8 @@ public partial class UIThreadActivatorUnitTest
             activator.ThrowIfNoActive();
             activator.ThrowIfCalledFromOtherThread();
 
-            await Task.Run(() =>
+            await TestTool.RunThread(() =>
             {
-                Task.Delay(500);
                 logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] IsActivatedThread start");
                 Assert.IsFalse(activator.IsActivatedThread);
                 logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] IsActivatedThread end");

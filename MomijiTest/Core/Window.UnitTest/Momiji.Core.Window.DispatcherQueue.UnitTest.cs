@@ -228,26 +228,10 @@ public partial class DispatcherQueueUnitTest
             Assert.AreEqual("1", exception);
         }
 
-        async Task<Task<Task<int>>> thread(Func<Task<int>> action)
-        {
-            var tcs = new TaskCompletionSource<Task<int>>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
-            var thread = new Thread(async () =>
-            {
-                tcs.TrySetResult(action());
-            })
-            {
-                IsBackground = false
-            };
-            thread.Start();
-
-            return tcs.Task;
-        }
-
         { // async mode
 
-            var task = thread(() => {
-                var task = queue.EnqueueAsync(() => { return 2; });
-                return task.AsTask();
+            var task = TestTool.RunThread(() => {
+                return queue.EnqueueAsync(() => { return 2; }).AsTask();
             });
 
             if (!mre.Wait(500))
@@ -272,16 +256,15 @@ public partial class DispatcherQueueUnitTest
                 Assert.Fail();
             }
 
-            var result = await await await task.ConfigureAwait(false);
+            var result = await await task.ConfigureAwait(false);
             Assert.AreEqual(2, result);
         }
 
         {
-            var task = thread(() => {
+            var task = TestTool.RunThread(() => {
 #pragma warning disable CS0162 // 到達できないコードが検出されました
-                var task = queue.EnqueueAsync(() => { throw new Exception("2"); return 2; });
+                return queue.EnqueueAsync(() => { throw new Exception("2"); return 2; }).AsTask();
 #pragma warning restore CS0162 // 到達できないコードが検出されました
-                return task.AsTask();
             });
 
             if (!mre.Wait(500))
@@ -309,7 +292,7 @@ public partial class DispatcherQueueUnitTest
             var exception = "0";
             try
             {
-                var result = await await await task.ConfigureAwait(false);
+                var result = await await task.ConfigureAwait(false);
             }
             catch (Exception e)
             {
@@ -318,7 +301,6 @@ public partial class DispatcherQueueUnitTest
             Assert.AreEqual("2", exception);
         }
     }
-
 
     /*
     [TestMethod]
@@ -357,7 +339,7 @@ public partial class DispatcherQueueUnitTest
         logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] task await start");
         logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] task run");
         var factory = new TaskFactory();
-        var main = factory.StartNew(() =>
+        var main = TestTool.RunThread(() =>
         {
             logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] task start");
             //起動
@@ -367,13 +349,13 @@ public partial class DispatcherQueueUnitTest
 
             mre.Wait();
 
-        }, TaskCreationOptions.RunContinuationsAsynchronously);
+        });
 
         await startupTcs.Task;
 
         try
         {
-            await Task.Run(() =>
+            await TestTool.RunThread(() =>
             {
                 //起動したスレッド以外からは呼べない
                 logger.LogInformation($"★thread:[{Environment.CurrentManagedThreadId:X}] DispatchQueue start");

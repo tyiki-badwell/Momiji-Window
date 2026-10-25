@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Momiji.Core.Window;
+using MomijiTest.Core.Window.UnitTest;
 
 namespace MomijiTest.Core.Window.IntegrationTest;
 
@@ -50,7 +51,7 @@ public partial class UIThreadIntegrationTest
         using var cts = new CancellationTokenSource();
         var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var task = Task.Run(() =>
+        var task = TestTool.RunThread(() =>
         {
             thread.RunMessageLoop(tcs, cts.Token);
             logger.LogInformation("loop end");
@@ -58,7 +59,7 @@ public partial class UIThreadIntegrationTest
 
         var uiThread = await tcs.Task;
 
-        var result = await await Task.Run(async () =>
+        var result = await await await TestTool.RunThread(async () =>
         {
             return await uiThread.EnqueueAsync(async (manager) =>
             {
@@ -103,7 +104,7 @@ public partial class UIThreadIntegrationTest
             using var cts = new CancellationTokenSource();
             var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 
-            var task = Task.Run(() =>
+            var task = TestTool.RunThread(() =>
             {
                 thread.RunMessageLoop(tcs, cts.Token);
                 logger.LogInformation("loop end");
@@ -114,7 +115,7 @@ public partial class UIThreadIntegrationTest
             cts.Cancel();
             await task;
 
-            var result = await Task.Run(async () =>
+            var result = await await TestTool.RunThread(async () =>
             {
                 return await uiThread.EnqueueAsync((manager) => 1);
             });
@@ -156,7 +157,7 @@ public partial class UIThreadIntegrationTest
 
             var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 
-            task = Task.Run(() =>
+            task = TestTool.RunThread(() =>
             {
                 thread.RunMessageLoop(tcs, default);
                 logger.LogInformation("loop end");
