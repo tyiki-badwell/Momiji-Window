@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Momiji.Core.Window;
+using MomijiTest.Core.Window.UnitTest;
 
 namespace MomijiTest.Core.Window.IntegrationTest;
 
@@ -229,7 +230,7 @@ public partial class DispatcherQueueIntegrationTest
         }
         else if (methodType == MethodType.Async && !asyncAction && !sameThread)
         {
-            var _ = Task.Run(async () =>
+            var _ = TestTool.RunThread(async () =>
             {
                 var result = queue.EnqueueAsync(() =>
                 {
@@ -280,7 +281,7 @@ public partial class DispatcherQueueIntegrationTest
         }
         else if (methodType == MethodType.Async && asyncAction && !sameThread)
         {
-            var _ = Task.Run(async () =>
+            var _ = TestTool.RunThread(async () =>
             {
                 var result = await queue.EnqueueAsync(async () =>
                 {

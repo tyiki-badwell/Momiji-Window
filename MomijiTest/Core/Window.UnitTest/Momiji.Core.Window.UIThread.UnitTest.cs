@@ -192,7 +192,7 @@ public partial class UIThreadUnitTest
         using var cts = new CancellationTokenSource();
         var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var task = Task.Run(() =>
+        var task = TestTool.RunThread(() =>
         {
             thread.RunMessageLoop(tcs, cts.Token);
             logger.LogInformation("loop end");
@@ -200,7 +200,7 @@ public partial class UIThreadUnitTest
 
         var uiThread = await tcs.Task;
 
-        var result = await await Task.Run(async () =>
+        var result = await await await TestTool.RunThread(async () =>
         {
             return await uiThread.EnqueueAsync(async (manager) =>
             {
@@ -243,7 +243,7 @@ public partial class UIThreadUnitTest
         using var cts = new CancellationTokenSource();
         var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 
-        var task = Task.Run(() =>
+        var task = TestTool.RunThread(() =>
         {
             thread.RunMessageLoop(tcs, cts.Token);
             logger.LogInformation("loop end");
@@ -256,7 +256,7 @@ public partial class UIThreadUnitTest
 
         try
         {
-            var result = await Task.Run(async () =>
+            var result = await await TestTool.RunThread(async () =>
             {
                 return await uiThread.EnqueueAsync((manager) => 1);
             });
@@ -298,7 +298,7 @@ public partial class UIThreadUnitTest
 
             var tcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
 
-            task = Task.Run(() =>
+            task = TestTool.RunThread(() =>
             {
                 thread.RunMessageLoop(tcs, default);
                 logger.LogInformation("loop end");

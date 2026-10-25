@@ -664,7 +664,7 @@ public partial class WindowIntegrationTest
             logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] Dispatch 4 put ===============================");
             var result = await await window.EnqueueAsync(async (window) => {
                 logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] Dispatch 4 run ===============================");
-                await Task.Run(() => {
+                await TestTool.RunThread(() => {
                     logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] sleep ===============================");
                     Thread.Sleep(1000);
                 }).ContinueWith((task) => {
@@ -713,7 +713,7 @@ public partial class WindowIntegrationTest
                             logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] dispatch 2 end[{result2}] ===============================");
                         }
 
-                        var task = Task.Run(async () =>
+                        var task = await TestTool.RunThread(async () =>
                         {
                             logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] sleep ===============================");
                             Thread.Sleep(1000);
@@ -728,10 +728,10 @@ public partial class WindowIntegrationTest
 
                             return result3;
 
-                        }).ContinueWith((task) =>
+                        }).ContinueWith(async (task) =>
                         {
                             logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] continue[{task.Result}] ===============================");
-                            return task.Result * 2;
+                            return await await task * 2;
                         });
 
                         //デッドロックしない
@@ -798,7 +798,7 @@ public partial class WindowIntegrationTest
                     {
                         logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] task run ===============================[{SynchronizationContext.Current}]");
 
-                        var result4 = await Task.Run(async () =>
+                        var result4 = await await TestTool.RunThread(async () =>
                         {
                             logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] dispatch 3 put ===============================[{SynchronizationContext.Current}]");
                             var result3 = await sender.EnqueueAsync<int>((window) =>
@@ -808,10 +808,10 @@ public partial class WindowIntegrationTest
                             logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] dispatch 3 end[{result3}] ===============================[{SynchronizationContext.Current}]");
                             return result3;
 
-                        }).ContinueWith((task) =>
+                        }).ContinueWith(async(task) =>
                         {
                             logger.LogInformation($"thread:[{Environment.CurrentManagedThreadId:X}] continue[{task.Result}] ===============================[{SynchronizationContext.Current}]");
-                            return task.Result * 2;
+                            return await await task * 2;
 
                         }).ConfigureAwait(true);
 

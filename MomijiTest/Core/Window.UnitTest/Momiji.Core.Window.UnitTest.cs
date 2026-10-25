@@ -20,3 +20,39 @@ public class WindowExceptionUnitTest
     }
 }
 
+public static class TestTool
+{
+    public static async Task RunThread(Action action)
+    {
+        var tcs = new TaskCompletionSource(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(async () =>
+        {
+            action();
+            tcs.TrySetResult();
+        })
+        {
+            IsBackground = false
+        };
+        thread.Start();
+
+        await tcs.Task;
+        thread.Join();
+    }
+
+    public static async Task<T> RunThread<T>(Func<T> action)
+    {
+        var tcs = new TaskCompletionSource<T>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(async () =>
+        {
+            tcs.TrySetResult(action());
+        })
+        {
+            IsBackground = false
+        };
+        thread.Start();
+
+        var task = await tcs.Task;
+        thread.Join();
+        return task;
+    }
+}
