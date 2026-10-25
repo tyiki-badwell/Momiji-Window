@@ -49,6 +49,8 @@ public partial class WindowManagerIntegrationTest
             set => throw new NotImplementedException();
         }
 
+        public ILogger Logger => throw new NotImplementedException();
+
         public bool Close() => throw new NotImplementedException();
         public ValueTask<T> EnqueueAsync<T>(Func<IWindow, T> func) => throw new NotImplementedException();
         public void Dispose() => throw new NotImplementedException();

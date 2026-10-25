@@ -1,7 +1,5 @@
 ﻿using System.Collections.Concurrent;
 using System.ComponentModel;
-using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -32,12 +30,10 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
     public IWindowClassManager WindowClassManager { get; }
     public IWindowProcedure WindowProcedure { get; }
     private readonly IDispatcherQueueSynchronizationContext _dispatcherQueueSynchronizationContext;
-    private readonly IServiceProvider _serviceProvider;
-
+    private readonly IServiceProvider _serviceProvider; //TODO ActivatorUtilities.CreateInstance のほうがよいか？
+    private readonly IWindowMap _windowMap;
     public bool IsEmpty => _windowMap.IsEmpty;
 
-    private readonly ConcurrentDictionary<User32.HWND, IWindowInternal> _windowMap = [];
-    private readonly Stack<IWindowInternal> _windowStack = [];
 
     private readonly ConcurrentDictionary<int, WeakReference<IWindowInternal>> _childIdMap = [];
     private int childId;
@@ -47,6 +43,7 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
         IServiceProvider serviceProvider,
         IUIThreadActivator uiThreadActivator,
         IDispatcherQueue dispatcherQueue,
+        IWindowMap windowMap,
         IWindowProcedure windowProcedure,
         IWindowClassManager windowClassManager,
         IDispatcherQueueSynchronizationContext dispatcherQueueSynchronizationContext
@@ -56,6 +53,7 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
         ArgumentNullException.ThrowIfNull(serviceProvider);
         ArgumentNullException.ThrowIfNull(uiThreadActivator);
         ArgumentNullException.ThrowIfNull(dispatcherQueue);
+        ArgumentNullException.ThrowIfNull(windowMap);
         ArgumentNullException.ThrowIfNull(windowProcedure);
         ArgumentNullException.ThrowIfNull(windowClassManager);
         ArgumentNullException.ThrowIfNull(dispatcherQueueSynchronizationContext);
@@ -69,6 +67,8 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
 
         _dispatcherQueue = dispatcherQueue;
         _dispatcherQueueSynchronizationContext = dispatcherQueueSynchronizationContext;
+
+        _windowMap = windowMap;
 
         WindowProcedure = windowProcedure;
         WindowProcedure.OnWindowMessage += OnWindowMessage;
@@ -107,75 +107,6 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
         }
     }
 
-    internal readonly ref struct SwitchThreadDpiAwarenessContextPerMonitorAwareV2RAII
-    {
-        private readonly ILogger _logger;
-        private readonly IWindowInternal _window;
-
-        private readonly User32.DPI_AWARENESS_CONTEXT _oldContext;
-
-        public SwitchThreadDpiAwarenessContextPerMonitorAwareV2RAII(
-            IWindowInternal window,
-            ILogger logger
-        )
-        {
-            _window = window;
-            _logger = logger;
-
-            _oldContext = User32.SetThreadDpiAwarenessContext(User32.DPI_AWARENESS_CONTEXT.PER_MONITOR_AWARE_V2);
-
-            var errorCode = Marshal.GetLastPInvokeError();
-            if (_logger.IsEnabled(LogLevel.Trace))
-            {
-                _logger.LogWithHWndAndError(LogLevel.Trace, $"ON SetThreadDpiAwarenessContext [{_oldContext:X} -> PER_MONITOR_AWARE_V2]", _window.HWND, errorCode, Environment.CurrentManagedThreadId);
-            }
-        }
-
-        public void Dispose()
-        {
-            if (_oldContext.Handle != 0)
-            {
-                var oldContext = User32.SetThreadDpiAwarenessContext(_oldContext);
-
-                var errorCode = Marshal.GetLastPInvokeError();
-                if (_logger.IsEnabled(LogLevel.Trace))
-                {
-                    _logger.LogWithHWndAndError(LogLevel.Trace, $"OFF SetThreadDpiAwarenessContext [{oldContext} -> {_oldContext}]", _window.HWND, errorCode, Environment.CurrentManagedThreadId);
-                }
-            }
-        }
-    }
-
-    private TResult InvokeWithContext<TResult>(Func<IWindowInternal, TResult> func, IWindowInternal window)
-    {
-        //TODO スレッドセーフになっているか要確認(再入しても問題ないなら気にしない)
-        //TODO 何かのコンテキストに移す
-        if (_logger.IsEnabled(LogLevel.Trace))
-        {
-            _logger.LogWithLine(LogLevel.Trace, $"Push [handle:{window.Handle:X}] [stack:{_windowStack.Count}] [{SynchronizationContext.Current}]", Environment.CurrentManagedThreadId);
-        }
-        _windowStack.Push(window);
-
-        try
-        {
-            //TODO CreateWindowだけ囲えば良さそうだが、一旦全部囲ってしまう
-            using var switchContext = new SwitchThreadDpiAwarenessContextPerMonitorAwareV2RAII(window, _logger);
-
-            _logger.LogWithLine(LogLevel.Trace, "Invoke start", Environment.CurrentManagedThreadId);
-            var result = func(window);
-            _logger.LogWithLine(LogLevel.Trace, "Invoke end", Environment.CurrentManagedThreadId);
-            return result;
-        }
-        finally
-        {
-            var result = _windowStack.Pop();
-            if (_logger.IsEnabled(LogLevel.Trace))
-            {
-                _logger.LogWithLine(LogLevel.Trace, $"Pop [handle:{window.Handle:X}] [stack:{_windowStack.Count}] [{SynchronizationContext.Current}]", Environment.CurrentManagedThreadId);
-            }
-            Debug.Assert(result == window);
-        }
-    }
 
     public int GenerateChildId(IWindowInternal window)
     {
@@ -196,25 +127,7 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
 
     public void CloseAll()
     {
-        //TODO SendMessageに行くのでUIスレッドで呼び出す必要は無いが、統一すべき？
-        foreach (var item in _windowMap)
-        {
-            if (!_windowMap.ContainsKey(item.Key))
-            {
-                //ループ中に削除されていた場合はスキップ
-                continue;
-            }
-
-            try
-            {
-                //TODO 親ウインドウにだけ実行する(順序に依っては子ウインドウのcloseで1400になる)
-                item.Value.Close();
-            }
-            catch (Exception e)
-            {
-                _logger.LogWithLine(LogLevel.Error, e, "close failed.", Environment.CurrentManagedThreadId);
-            }
-        }
+        _windowMap.CloseAll();
     }
 
     private void OnInactivated()
@@ -225,24 +138,7 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
 
     private void ForceClose()
     {
-        if (_windowMap.IsEmpty)
-        {
-            return;
-        }
-
-        _logger.LogWithLine(LogLevel.Warning, $"window left {_windowMap.Count}", Environment.CurrentManagedThreadId);
-        PrintWindowMap();
-
-        foreach (var item in _windowMap)
-        {
-            //NOTE UIThreadで実行しないとエラーになる
-            item.Value.Dispose();
-        }
-
-        //TODO mapが空になるのを待つ？
-        _logger.LogWithLine(LogLevel.Warning, $"window left {_windowMap.Count}", Environment.CurrentManagedThreadId);
-
-        _windowMap.Clear();
+        _windowMap.ForceClose();
     }
 
     public async ValueTask<IWindow> CreateWindowAsync(
@@ -279,7 +175,7 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
 
         TResult func()
         {
-            return InvokeWithContext(item, window);
+            return _windowMap.InvokeWithContext(item, window);
         }
 
         return await _dispatcherQueue.EnqueueAsync(func);
@@ -311,7 +207,7 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
                 return;
             }
 
-            if (TryGetWindow(hwnd, out var window))
+            if (_windowMap.TryGetWindow(hwnd, out var window))
             {
                 //ウインドウに流す
                 window.OnMessage(message);
@@ -431,7 +327,7 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
                         }
                     }
 
-                    if (FindWindow(childHWnd, out var childWindow))
+                    if (_windowMap.FindWindow(childHWnd, out var childWindow))
                     {
                         //既に管理対象のwindowだった
                         if (_logger.IsEnabled(LogLevel.Trace))
@@ -456,7 +352,7 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
                             throw;
                         }
 
-                        Add(window);
+                        _windowMap.Add(window);
                     }
 
                     break;
@@ -469,7 +365,7 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
                     }
                     var childHWnd = (User32.HWND)lParam;
 
-                    if (FindWindow(childHWnd, out var childWindow))
+                    if (_windowMap.FindWindow(childHWnd, out var childWindow))
                     {
                         //既に管理対象のwindowだった
                         if (_logger.IsEnabled(LogLevel.Trace))
@@ -479,11 +375,11 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
                         
                         if (childWindow is SubClassNativeWindow subclass)
                         {
-                            Remove(subclass);
+                            _windowMap.Remove(subclass);
                         }
                         if (childWindow is SubClassNativeWindow2 subclass2)
                         {
-                            Remove(subclass2);
+                            _windowMap.Remove(subclass2);
                         }
                     }
                     else
@@ -552,12 +448,12 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
     private void OnWM_NCCREATE_After(IWindowInternal window)
     {
         //作成に成功してからWindowMapに入れる
-        Add(window);
+        _windowMap.Add(window);
     }
 
     private void OnWM_NCDESTROY_After(IWindowInternal window)
     {
-        Remove(window);
+        _windowMap.Remove(window);
     }
 
     private void CallOriginalWindowProc(User32.HWND hwnd, IWindowManager.IMessage message)
@@ -577,127 +473,4 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
         }
     }
 
-    [Conditional("DEBUG")]
-    private void PrintWindowStack()
-    {
-        _logger.LogWithLine(LogLevel.Trace, "================================= PrintWindowStack start", Environment.CurrentManagedThreadId);
-        if (_windowStack.Count == 0)
-        {
-            _logger.LogWithLine(LogLevel.Trace, "EMPTY", Environment.CurrentManagedThreadId);
-        }
-        else
-        {
-            if (_logger.IsEnabled(LogLevel.Trace))
-            {
-                _logger.LogWithLine(LogLevel.Trace, $"window stack {string.Join("<-", _windowStack.Select((window, idx) => $"[hash:{window.GetHashCode():X}][window:{window}]"))}", Environment.CurrentManagedThreadId);
-            }
-        }
-        _logger.LogWithLine(LogLevel.Trace, "================================= PrintWindowStack end", Environment.CurrentManagedThreadId);
-    }
-
-    [Conditional("DEBUG")]
-    private void PrintWindowMap()
-    {
-        _logger.LogWithLine(LogLevel.Trace, "================================= PrintWindowMap start", Environment.CurrentManagedThreadId);
-
-        if (_windowMap.IsEmpty)
-        {
-            _logger.LogWithLine(LogLevel.Trace, "EMPTY", Environment.CurrentManagedThreadId);
-        }
-        else
-        {
-            foreach (var item in _windowMap)
-            {
-                if (_logger.IsEnabled(LogLevel.Trace))
-                {
-                    _logger.LogWithHWnd(LogLevel.Trace, $"window map [window:{item.Value}]", item.Key, Environment.CurrentManagedThreadId);
-                }
-            }
-        }
-        _logger.LogWithLine(LogLevel.Trace, "================================= PrintWindowMap end", Environment.CurrentManagedThreadId);
-    }
-
-    private void Add(IWindowInternal window)
-    {
-        if (_windowMap.TryAdd(window.HWND, window))
-        {
-            _logger.LogWithHWnd(LogLevel.Information, "add window map", window.HWND, Environment.CurrentManagedThreadId);
-        }
-        else
-        {
-            //TODO handleが再利用されている？
-            throw new WindowException($"failed add window map hwnd:[{window.HWND}]");
-        }
-    }
-
-    private void Remove(IWindowInternal window)
-    {
-        if (_windowMap.TryRemove(window.HWND, out var window_))
-        {
-            _logger.LogWithHWnd(LogLevel.Information, "remove window map", window_.HWND, Environment.CurrentManagedThreadId);
-            window_.HWND = User32.HWND.None;
-        }
-        else
-        {
-            throw new WindowException($"failed remove window map hwnd:[{window.HWND}]");
-        }
-    }
-
-    private bool FindWindow(User32.HWND hwnd, [MaybeNullWhen(false)] out IWindowInternal window)
-    {
-        if (_windowMap.TryGetValue(hwnd, out window))
-        {
-            if (_logger.IsEnabled(LogLevel.Trace))
-            {
-                _logger.LogWithHWnd(LogLevel.Trace, $"in window map [hash:{window.GetHashCode():X}][{window}]", hwnd, Environment.CurrentManagedThreadId);
-            }
-            return true;
-        }
-        return false;
-    }
-
-    private bool TryGetWindow(User32.HWND hwnd, [MaybeNullWhen(false)] out IWindowInternal window)
-    {
-        PrintWindowStack();
-        PrintWindowMap();
-
-        if (FindWindow(hwnd, out window))
-        {
-            return true;
-        }
-
-        if (_windowStack.TryPeek(out window))
-        {
-            if (window.HWND.Handle == hwnd.Handle)
-            {
-                if (_logger.IsEnabled(LogLevel.Trace))
-                {
-                    _logger.LogWithHWnd(LogLevel.Trace, $"in window stack [hash:{window.GetHashCode():X}][{window}]", hwnd, Environment.CurrentManagedThreadId);
-                }
-                return true;
-            }
-
-            if (window.HWND.Handle == User32.HWND.None.Handle)
-            {
-                if (_logger.IsEnabled(LogLevel.Trace))
-                {
-                    _logger.LogWithHWnd(LogLevel.Trace, $"in window stack (until create process) [hash:{window.GetHashCode():X}][{window}]", hwnd, Environment.CurrentManagedThreadId);
-                }
-                //最速でHWNDを受け取る
-                window.HWND = hwnd;
-                return true;
-            }
-
-            if (_logger.IsEnabled(LogLevel.Trace))
-            {
-                _logger.LogWithHWnd(LogLevel.Trace, $"in window stack, but other window [hash:{window.GetHashCode():X}][{window}]", hwnd, Environment.CurrentManagedThreadId);
-            }
-            return false;
-        }
-        else
-        {
-            _logger.LogWithHWnd(LogLevel.Trace, "stack is empty", hwnd, Environment.CurrentManagedThreadId);
-            return false;
-        }
-    }
 }

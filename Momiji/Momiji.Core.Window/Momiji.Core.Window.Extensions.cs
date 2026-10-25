@@ -48,7 +48,7 @@ public static class IWindowExtensions
     {
         return await window.EnqueueAsync(
             (window) =>
-            ((NativeWindow)window).MoveImpl(
+            ((IWindowInternal)window).MoveImpl(
                 x,
                 y,
                 width,
@@ -59,7 +59,7 @@ public static class IWindowExtensions
     }
 
     private static bool MoveImpl(
-        this NativeWindow window,
+        this IWindowInternal window,
         int x,
         int y,
         int width,
@@ -96,12 +96,12 @@ public static class IWindowExtensions
     {
         return await window.EnqueueAsync(
             (window) =>
-            ((NativeWindow)window).ShowImpl(cmdShow)
+            ((IWindowInternal)window).ShowImpl(cmdShow)
         );
     }
 
     private static bool ShowImpl(
-        this NativeWindow window,
+        this IWindowInternal window,
         int cmdShow
     )
     {
@@ -152,12 +152,12 @@ public static class IWindowExtensions
     {
         return await window.EnqueueAsync(
             (window) =>
-            ((NativeWindow)window).SetWindowStyleImpl(style)
+            ((IWindowInternal)window).SetWindowStyleImpl(style)
         );
     }
 
     private static bool SetWindowStyleImpl(
-        this NativeWindow window,
+        this IWindowInternal window,
         int style
     )
     {
@@ -185,7 +185,7 @@ public static class IWindowExtensions
         }
 
         {
-            var (result, error) = window.SetWindowLong(window.HWND, -16, new nint(style)); //GWL_STYLE
+            var (result, error) = window.SetWindowLong(-16, new nint(style)); //GWL_STYLE
             if (result == nint.Zero && error.NativeErrorCode != 0)
             {
                 window.Logger.LogWithHWndAndError(LogLevel.Error, "SetWindowLong failed", window.HWND, error.ToString(), Environment.CurrentManagedThreadId);
@@ -223,6 +223,39 @@ public static class IWindowExtensions
         return true;
     }
 
+    internal static (nint, Win32Exception) SetWindowLong(
+        this IWindow window,
+        int nIndex,
+        nint dwNewLong
+    )
+    {
+        var window_ = (IWindowInternal)window;
+        var isWindowUnicode = (window_.HWND.Handle != User32.HWND.None.Handle) && User32.IsWindowUnicode(window_.HWND);
+
+        //SetWindowLong～のエラー判定のために、エラーコードをリセットする
+        Marshal.SetLastPInvokeError(0);
+
+        if (window_.Logger.IsEnabled(LogLevel.Information))
+        {
+            window_.Logger.LogWithHWnd(LogLevel.Information, $"SetWindowLong nIndex:[{nIndex:X}] dwNewLong:[{dwNewLong:X}]", window_.HWND, Environment.CurrentManagedThreadId);
+        }
+
+        var result = isWindowUnicode
+                        ? Environment.Is64BitProcess
+                            ? User32.SetWindowLongPtrW(window_.HWND, nIndex, dwNewLong)
+                            : User32.SetWindowLongW(window_.HWND, nIndex, dwNewLong)
+                        : Environment.Is64BitProcess
+                            ? User32.SetWindowLongPtrA(window_.HWND, nIndex, dwNewLong)
+                            : User32.SetWindowLongA(window_.HWND, nIndex, dwNewLong)
+                        ;
+        var errorCode = Marshal.GetLastPInvokeError();
+        var error = new Win32Exception(errorCode);
+        if (window_.Logger.IsEnabled(LogLevel.Information))
+        {
+            window_.Logger.LogWithHWndAndError(LogLevel.Information, $"SetWindowLong result:[{result:X}]", window_.HWND, error.ToString(), Environment.CurrentManagedThreadId);
+        }
+        return (result, error);
+    }
 }
 
 public static class IHostBuilderExtensions
@@ -232,15 +265,15 @@ public static class IHostBuilderExtensions
         return hostBuilder.ConfigureServices((hostContext, services) =>
         {
             services.AddSingleton<IUIThreadFactory, UIThreadFactory>();
+            services.AddSingleton<IUIThreadMap, UIThreadMap>();
             services.AddSingleton<IOnUnhandledExceptionHandler, OnUnhandledExceptionHandler>();
-
-            services.AddSingleton<IUIThreadRunner, UIThreadRunner>();
 
             services.AddScoped<IUIThreadInternal, UIThread>();
             services.AddScoped<IUIThreadActivator, UIThreadActivator>();
             services.AddScoped<IDispatcherQueue, DispatcherQueue>();
             services.AddScoped<IDispatcherQueueSynchronizationContext, DispatcherQueueSynchronizationContext>();
             services.AddScoped<IDispatcherQueueTaskExecutor, DispatcherQueueTaskExecutor>();
+            services.AddScoped<IWindowMap, WindowMap>();
             services.AddScoped<IWindowManagerInternal, WindowManager>();
             services.AddScoped<IWindowProcedure, WindowProcedure>();
             services.AddScoped<IWindowClassManager, WindowClassManager>();

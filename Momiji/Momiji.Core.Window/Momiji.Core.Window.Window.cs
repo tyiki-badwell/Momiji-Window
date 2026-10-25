@@ -17,6 +17,8 @@ internal interface IWindowInternal : IWindow
 
     User32.HWND HWND { set; get; }
 
+    ILogger Logger { get; }
+
     void Initialize(IParameter parameter);
 
     void OnMessage(IWindowManager.IMessage message);
@@ -26,7 +28,7 @@ internal abstract class NativeWindowBase : IWindowInternal
 {
     private readonly ILoggerFactory _loggerFactory;
 
-    internal ILogger Logger { get; }
+    public ILogger Logger { get; }
 
     protected IWindowManagerInternal WindowManager { get; }
 
@@ -112,39 +114,6 @@ internal abstract class NativeWindowBase : IWindowInternal
             return ret2;
         }
         return false;
-    }
-
-    internal (nint, Win32Exception) SetWindowLong(
-        User32.HWND targetHWnd,
-        int nIndex,
-        nint dwNewLong
-    )
-    {
-        var isWindowUnicode = (targetHWnd.Handle != User32.HWND.None.Handle) && User32.IsWindowUnicode(targetHWnd);
-
-        //SetWindowLong～のエラー判定のために、エラーコードをリセットする
-        Marshal.SetLastPInvokeError(0);
-
-        if (Logger.IsEnabled(LogLevel.Information))
-        {
-            Logger.LogWithHWnd(LogLevel.Information, $"SetWindowLong nIndex:[{nIndex:X}] dwNewLong:[{dwNewLong:X}]", targetHWnd, Environment.CurrentManagedThreadId);
-        }
-
-        var result = isWindowUnicode
-                        ? Environment.Is64BitProcess
-                            ? User32.SetWindowLongPtrW(targetHWnd, nIndex, dwNewLong)
-                            : User32.SetWindowLongW(targetHWnd, nIndex, dwNewLong)
-                        : Environment.Is64BitProcess
-                            ? User32.SetWindowLongPtrA(targetHWnd, nIndex, dwNewLong)
-                            : User32.SetWindowLongA(targetHWnd, nIndex, dwNewLong)
-                        ;
-        var errorCode = Marshal.GetLastPInvokeError();
-        var error = new Win32Exception(errorCode);
-        if (Logger.IsEnabled(LogLevel.Information))
-        {
-            Logger.LogWithHWndAndError(LogLevel.Information, $"SetWindowLong result:[{result:X}]", targetHWnd, error.ToString(), Environment.CurrentManagedThreadId);
-        }
-        return (result, error);
     }
 }
 
@@ -340,7 +309,7 @@ internal sealed partial class SubClassNativeWindow : NativeWindowBase
             Logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
         }
 
-        var (result, error) = SetWindowLong(HWND, -4, _oldWinProc);
+        var (result, error) = this.SetWindowLong(-4, _oldWinProc);
         if (result == nint.Zero && error.NativeErrorCode != 0)
         {
             Logger.LogWithHWnd(LogLevel.Error, error, "SetWindowLong failed", HWND, Environment.CurrentManagedThreadId);
@@ -362,12 +331,13 @@ internal sealed partial class SubClassNativeWindow : NativeWindowBase
     public override void Initialize(IWindowInternal.IParameter parameter)
     {
         var parameter_ = (Parameter)parameter;
-        var h = parameter_.childHWnd;
 
-        var (result, error) = SetWindowLong(h, -4, WindowManager.WindowProcedure.FunctionPointer); //GWLP_WNDPROC
+        HWND = parameter_.childHWnd;
+
+        var (result, error) = this.SetWindowLong(-4, WindowManager.WindowProcedure.FunctionPointer); //GWLP_WNDPROC
         if (result == nint.Zero && error.NativeErrorCode != 0)
         {
-            Logger.LogWithHWndAndError(LogLevel.Error, "SetWindowLong failed", h, error.ToString(), Environment.CurrentManagedThreadId);
+            Logger.LogWithHWndAndError(LogLevel.Error, "SetWindowLong failed", HWND, error.ToString(), Environment.CurrentManagedThreadId);
             ExceptionDispatchInfo.Throw(error);
         }
 
@@ -377,7 +347,6 @@ internal sealed partial class SubClassNativeWindow : NativeWindowBase
             throw new InvalidOperationException("already managed");
         }
 
-        HWND = h;
         _oldWinProc = result;
     }
 

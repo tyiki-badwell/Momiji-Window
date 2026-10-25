@@ -99,6 +99,10 @@ internal sealed partial class DispatcherQueueTaskExecutor : IDispatcherQueueTask
                 {
                     d(state);
                 }
+                else if (item is (SendOrPostCallback d2, null))
+                {
+                    d2(null);
+                }
                 else
                 {
                     throw new ArgumentException($"unknown queue item type [{item.GetType()}]");

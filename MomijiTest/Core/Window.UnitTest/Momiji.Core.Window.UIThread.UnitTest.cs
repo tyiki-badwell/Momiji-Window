@@ -24,6 +24,7 @@ public partial class UIThreadUnitTest
             services.AddSingleton<IUIThreadActivator, UIThreadActivator>();
             services.AddSingleton<IOnUnhandledExceptionHandler, OnUnhandledExceptionHandler>();
             services.AddSingleton<IWindowManagerInternal, WindowManager>();
+            services.AddSingleton<IWindowMap, WindowMap>();
             services.AddSingleton<IWindowProcedure, WindowProcedure>();
             services.AddSingleton<IWindowClassManager, WindowClassManager>();
             services.AddSingleton<IDispatcherQueue, DispatcherQueue>();

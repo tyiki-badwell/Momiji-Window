@@ -30,6 +30,7 @@ public partial class WindowManagerUnitTest
             services.AddSingleton<IWindowClass, DummyWindowClass>();
             services.AddSingleton<IWindowClassManager, DummyWindowClassManager>();
             services.AddSingleton<IWindowManagerInternal, WindowManager>();
+            services.AddSingleton<IWindowMap, WindowMap>();
             services.AddKeyedTransient<IWindowInternal, NativeWindow>(NativeWindow.Type);
 
         });
@@ -117,6 +118,8 @@ public partial class WindowManagerUnitTest
             get => User32.HWND.None;
             set => throw new NotImplementedException();
         }
+
+        public ILogger Logger => throw new NotImplementedException();
 
         public bool Close() => throw new NotImplementedException();
         public ValueTask<T> EnqueueAsync<T>(Func<IWindow, T> func) => throw new NotImplementedException();
