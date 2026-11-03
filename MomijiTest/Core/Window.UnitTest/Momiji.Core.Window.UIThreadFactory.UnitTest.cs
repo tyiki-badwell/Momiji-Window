@@ -12,7 +12,34 @@ public partial class UIThreadFactoryTest
     {
     }
 
-    private static IHost Setup()
+    internal class UIThreadDummy : IUIThreadInternal
+    {
+        public event IUIThread.InactivatedEventHandler? OnInactivated;
+
+        public ValueTask CancelAsync() => ValueTask.CompletedTask;
+        public void Dispose() => throw new NotImplementedException();
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindowManager, TResult> item) => throw new NotImplementedException();
+        public void RunMessageLoop(TaskCompletionSource<IUIThread> startTcs, CancellationToken ct = default) {
+            startTcs.TrySetResult(this);
+        }
+    }
+
+    internal class UIThreadDummyRunMessageLoopError : IUIThreadInternal
+    {
+        public event IUIThread.InactivatedEventHandler? OnInactivated;
+
+        public ValueTask CancelAsync() => ValueTask.CompletedTask;
+        public void Dispose() => throw new NotImplementedException();
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindowManager, TResult> item) => throw new NotImplementedException();
+        public void RunMessageLoop(TaskCompletionSource<IUIThread> startTcs, CancellationToken ct = default)
+        {
+            throw new Exception("ERROR");
+        }
+    }
+
+    private static IHost Setup<IUIThreadInternalDummy>() where IUIThreadInternalDummy : class, IUIThreadInternal
     {
         var builder = Host.CreateDefaultBuilder(default);
 
@@ -21,18 +48,10 @@ public partial class UIThreadFactoryTest
         builder.ConfigureServices((hostContext, services) =>
         {
             services.AddSingleton<IOnUnhandledExceptionHandler, OnUnhandledExceptionHandler>();
-            services.AddSingleton<IUIThreadFactory, UIThreadFactory>();
 
-            services.AddTransient<IUIThreadRunner, UIThreadRunner>();
-
-            services.AddScoped<IUIThreadInternal, UIThread>();
-            services.AddScoped<IUIThreadActivator, UIThreadActivator>();
-            services.AddScoped<IDispatcherQueue, DispatcherQueue>();
-            services.AddScoped<IDispatcherQueueTaskExecutor, DispatcherQueueTaskExecutor>();
-            services.AddScoped<IDispatcherQueueSynchronizationContext, DispatcherQueueSynchronizationContext>();
-            services.AddScoped<IWindowManagerInternal, WindowManager>();
-            services.AddScoped<IWindowProcedure, WindowProcedure>();
-            services.AddScoped<IWindowClassManager, WindowClassManager>();
+            services.AddTransient<IUIThreadMap, UIThreadMap>();
+            services.AddTransient<IUIThreadInternal, IUIThreadInternalDummy>();
+            
         });
 
         return builder.Build();
@@ -41,139 +60,53 @@ public partial class UIThreadFactoryTest
     [TestMethod]
     public async Task TestConstructor()
     {
-        using var host = Setup();
+        using var host = Setup<UIThreadDummy>();
         var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
-        var factory = host.Services.GetRequiredService<IServiceScopeFactory>();
 
-        using var threadFactory = (IDisposable)host.Services.GetRequiredService<IUIThreadFactory>();
-    }
-
-    [TestMethod]
-    public async Task TestConstructorAsync()
-    {
-        using var host = Setup();
-        var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
-        var factory = host.Services.GetRequiredService<IServiceScopeFactory>();
-
-        await using var threadFactory = (IAsyncDisposable)host.Services.GetRequiredService<IUIThreadFactory>();
-    }
-
-    [TestMethod]
-    public async Task TestFinalizer()
-    {
-        static void run()
-        {
-            using var host = Setup();
-            var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
-            var factory = host.Services.GetRequiredService<IServiceScopeFactory>();
-
-            var _ = host.Services.GetRequiredService<IUIThreadFactory>();
-        }
-
-        run();
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
-    }
-
-    [TestMethod]
-    public async Task TestDoubleDestruct()
-    {
-        using var host = Setup();
-        var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
-        var factory = host.Services.GetRequiredService<IServiceScopeFactory>();
-
-        var threadFactory = (IDisposable)host.Services.GetRequiredService<IUIThreadFactory>();
-        threadFactory.Dispose();
-        threadFactory.Dispose();
+        var threadFactory = new UIThreadFactory(
+            loggerFactory.CreateLogger<UIThreadFactory>(),
+            host.Services.GetRequiredService<IUIThreadMap>(),
+            host.Services.GetRequiredService<IServiceScopeFactory>()
+        );
     }
 
     [TestMethod]
     public async Task TestStartAsync()
     {
-        using var host = Setup();
+        using var host = Setup<UIThreadDummy>();
         var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
         var logger = loggerFactory.CreateLogger<UIThreadFactoryTest>();
-        
-        var threadFactory = host.Services.GetRequiredService<IUIThreadFactory>();
 
-        {//１回目起動
-            logger.LogInformation("======================= 1st start");
-            var thread = await threadFactory.StartAsync();
-            logger.LogInformation("======================= 1st end");
-        }
+        var threadFactory = new UIThreadFactory(
+            loggerFactory.CreateLogger<UIThreadFactory>(),
+            host.Services.GetRequiredService<IUIThreadMap>(),
+            host.Services.GetRequiredService<IServiceScopeFactory>()
+        );
 
-        {//２回目起動
-            logger.LogInformation("======================= 2nd start");
-            var thread = await threadFactory.StartAsync();
-            logger.LogInformation("======================= 2nd end");
-        }
-
-        {//二重起動
-            logger.LogInformation("======================= 3rd start");
-            var thread1 = await threadFactory.StartAsync();
-            logger.LogInformation("======================= 3rd status");
-
-            logger.LogInformation("======================= 4th start");
-            var thread2 = await threadFactory.StartAsync();
-            logger.LogInformation($"======================= 4th status");
-        }
+        var thread = await threadFactory.StartAsync();
     }
 
     [TestMethod]
-    public async Task TestDispose()
+    public async Task TestStartAsyncError()
     {
-        using var host = Setup();
+        using var host = Setup<UIThreadDummyRunMessageLoopError>();
         var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
         var logger = loggerFactory.CreateLogger<UIThreadFactoryTest>();
 
-        var threadFactory = host.Services.GetRequiredService<IUIThreadFactory>();
-
-        {//起動したままdispose
-            logger.LogInformation("======================= start");
-            var _ = await threadFactory.StartAsync();
-
-            ((IDisposable)threadFactory).Dispose();
-            logger.LogInformation("======================= end");
-        }
+        var threadFactory = new UIThreadFactory(
+            loggerFactory.CreateLogger<UIThreadFactory>(),
+            host.Services.GetRequiredService<IUIThreadMap>(),
+            host.Services.GetRequiredService<IServiceScopeFactory>()
+        );
 
         try
-        {//dispose後のstartはNG
+        {
             var thread = await threadFactory.StartAsync();
-            Assert.Fail("エラーが発生しなかった");
+            Assert.Fail();
         }
-        catch (ObjectDisposedException e)
+        catch (Exception e)
         {
-            logger.LogInformation(e, "error occurred");
+            Assert.AreEqual("ERROR", e.Message);
         }
     }
-
-    [TestMethod]
-    public async Task TestDisposeAync()
-    {
-        using var host = Setup();
-        var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
-        var logger = loggerFactory.CreateLogger<UIThreadFactoryTest>();
-
-        var threadFactory = host.Services.GetRequiredService<IUIThreadFactory>();
-
-        {//起動したままdispose async
-            logger.LogInformation("======================= start");
-            var _ = await threadFactory.StartAsync();
-
-            await ((IAsyncDisposable)threadFactory).DisposeAsync();
-            logger.LogInformation("======================= end");
-        }
-
-        try
-        {//dispose後のstartはNG
-            var _ = await threadFactory.StartAsync();
-            Assert.Fail("エラーが発生しなかった");
-        }
-        catch (ObjectDisposedException e)
-        {
-            logger.LogInformation(e, "error occurred");
-        }
-    }
-
 }

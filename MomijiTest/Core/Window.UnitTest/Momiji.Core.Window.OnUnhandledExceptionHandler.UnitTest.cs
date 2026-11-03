@@ -91,5 +91,12 @@ public partial class OnUnhandledExceptionHandlerUnitTest
         };
 
         handler.DoUnhandledException(new Exception("test exception2"));
+
+        handler.OnUnhandledException += (sender, exception) =>
+        {
+            throw new Exception("handle error");
+        };
+
+        handler.DoUnhandledException(new Exception("test exception2"));
     }
 }

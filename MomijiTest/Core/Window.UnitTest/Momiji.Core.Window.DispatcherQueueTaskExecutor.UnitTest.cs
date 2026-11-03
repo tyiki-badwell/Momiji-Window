@@ -120,6 +120,8 @@ public partial class DispatcherQueueTaskExecutorUnitTest
             context
         );
 
+        queue.Enqueue(() => { });
+
         active.Dispose();
     }
 
@@ -169,41 +171,9 @@ public partial class DispatcherQueueTaskExecutorUnitTest
         );
 
         queue.Enqueue((p) => { }, 1);
+        queue.Enqueue((p) => { }, null);
 
         executor.DispatchQueue();
-    }
-
-    [TestMethod]
-    public async Task TestDispatcherQueueUnkown()
-    {
-        using var host = Setup();
-        var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
-        var uiThreadActivator = host.Services.GetRequiredService<IUIThreadActivator>();
-        var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
-        var queue = host.Services.GetRequiredService<IDispatcherQueue>();
-        var context = host.Services.GetRequiredService<IDispatcherQueueSynchronizationContext>();
-
-        using var active = uiThreadActivator.Activate();
-
-        using var executor = new DispatcherQueueTaskExecutor(
-            loggerFactory.CreateLogger<DispatcherQueueTaskExecutor>(),
-            uiThreadActivator,
-            onUnhandledExceptionHandler,
-            queue,
-            context
-        );
-
-        queue.Enqueue((p) => { }, (object?)null);
-
-        try
-        {
-            executor.DispatchQueue();
-            Assert.Fail();
-        }
-        catch (Exception e)
-        {
-
-        }
     }
 
     [TestMethod]
