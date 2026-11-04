@@ -29,16 +29,6 @@ public partial class WindowManagerIntegrationTest
 
     }
 
-    [TestMethod]
-    public void TestConstruct()
-    {
-        using var host = Setup();
-        var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
-
-        Assert.IsNotNull(windowManager.WindowClassManager);
-        Assert.IsNotNull(windowManager.WindowProcedure);
-    }
-
     private partial class DummyWindow : IWindowInternal
     {
         public nint Handle => 0;
@@ -50,6 +40,8 @@ public partial class WindowManagerIntegrationTest
         }
 
         public ILogger Logger => throw new NotImplementedException();
+
+        public IWindowFunction WindowFunction => throw new NotImplementedException();
 
         public bool Close() => throw new NotImplementedException();
         public ValueTask<T> EnqueueAsync<T>(Func<IWindow, T> func) => throw new NotImplementedException();
@@ -92,9 +84,9 @@ public partial class WindowManagerIntegrationTest
         using var host = Setup();
         var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
         var logger = loggerFactory.CreateLogger<WindowManagerIntegrationTest>();
-        var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
+        var windowMap = host.Services.GetRequiredService<IWindowMap>();
 
-        windowManager.CloseAll();
+        windowMap.CloseAll();
 
     }
 
@@ -107,6 +99,7 @@ public partial class WindowManagerIntegrationTest
         var logger = loggerFactory.CreateLogger<WindowManagerIntegrationTest>();
         var uiThreadActivator = host.Services.GetRequiredService<IUIThreadActivator>();
         var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
+        var windowMap = host.Services.GetRequiredService<IWindowMap>();
 
         //起動
         using var active = uiThreadActivator.Activate();
@@ -134,7 +127,7 @@ public partial class WindowManagerIntegrationTest
         window.PostMessage(0, 0, 0);
 
         //全部クローズ
-        windowManager.CloseAll();
+        windowMap.CloseAll();
 
         //個別のcloseは失敗するが許している
         window.Close();

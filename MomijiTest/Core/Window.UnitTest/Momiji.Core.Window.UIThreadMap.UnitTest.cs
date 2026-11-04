@@ -2,8 +2,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Momiji.Core.Window;
-using Momiji.Internal.Window;
-using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace MomijiTest.Core.Window.UnitTest;
 
@@ -162,6 +160,23 @@ public partial class UIThreadMapUnitTest
         }
     }
 
+    internal class UIThreadDummyCancelAsyncEndless : IUIThreadInternal
+    {
+        public event IUIThread.InactivatedEventHandler? OnInactivated;
+
+        public ValueTask CancelAsync()
+        {
+            return new ValueTask(Task.Delay(1000000));
+        }
+        public void Dispose() => throw new NotImplementedException();
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindowManager, TResult> item) => throw new NotImplementedException();
+        public void RunMessageLoop(TaskCompletionSource<IUIThread> startTcs, CancellationToken ct = default)
+        {
+            startTcs.TrySetResult(this);
+        }
+    }
+
     [TestMethod]
     public async Task TestCancelAllAsyncError()
     {
@@ -198,7 +213,7 @@ public partial class UIThreadMapUnitTest
     }
 
     [TestMethod]
-    public async Task TestCancelAllAsyncEternal()
+    public async Task TestCancelAllAsyncEndless()
     {
         using var host = Setup();
         var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
@@ -209,7 +224,7 @@ public partial class UIThreadMapUnitTest
             handler
         );
 
-        var thread = new UIThreadDummyCancelAsyncError();
+        var thread = new UIThreadDummyCancelAsyncEndless();
         var task = Task.CompletedTask;
 
         map.Add(thread, task);

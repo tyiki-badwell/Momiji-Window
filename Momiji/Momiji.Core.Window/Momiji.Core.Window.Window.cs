@@ -19,6 +19,8 @@ internal interface IWindowInternal : IWindow
 
     ILogger Logger { get; }
 
+    IWindowFunction WindowFunction { get; }
+
     void Initialize(IParameter parameter);
 
     void OnMessage(IWindowManager.IMessage message);
@@ -32,12 +34,24 @@ internal abstract class NativeWindowBase : IWindowInternal
 
     protected IWindowManagerInternal WindowManager { get; }
 
+    public IWindowFunction WindowFunction
+    {
+        get;
+    }
+
+    protected IWindowProcedure WindowProcedure
+    {
+        get;
+    }
+
     public User32.HWND HWND { set; get; }
     public nint Handle => HWND.Handle;
 
     internal NativeWindowBase(
         ILoggerFactory loggerFactory,
-        IWindowManagerInternal windowManager
+        IWindowManagerInternal windowManager,
+        IWindowFunction windowFunction,
+        IWindowProcedure windowProcedure
     )
     {
         //TODO UIAutomation
@@ -45,6 +59,8 @@ internal abstract class NativeWindowBase : IWindowInternal
         _loggerFactory = loggerFactory;
         Logger = _loggerFactory.CreateLogger<NativeWindow>();
         WindowManager = windowManager;
+        WindowFunction = windowFunction;
+        WindowProcedure = windowProcedure;
     }
 
     ~NativeWindowBase()
@@ -80,7 +96,7 @@ internal abstract class NativeWindowBase : IWindowInternal
         nint lParam
     )
     {
-        return WindowManager.WindowProcedure.SendMessage(HWND, (uint)nMsg, wParam, lParam);
+        return WindowFunction.SendMessage(HWND, (uint)nMsg, wParam, lParam);
     }
 
     public void PostMessage(
@@ -89,7 +105,7 @@ internal abstract class NativeWindowBase : IWindowInternal
         nint lParam
     )
     {
-        WindowManager.WindowProcedure.PostMessage(HWND, (uint)nMsg, wParam, lParam);
+        WindowFunction.PostMessage(HWND, (uint)nMsg, wParam, lParam);
     }
 
     public bool ReplyMessage(
@@ -119,8 +135,11 @@ internal abstract class NativeWindowBase : IWindowInternal
 
 internal sealed partial class NativeWindow(
     ILoggerFactory loggerFactory,
-    IWindowManagerInternal windowManager
-    ) : NativeWindowBase(loggerFactory, windowManager)
+    IWindowManagerInternal windowManager,
+    IWindowFunction windowFunction,
+    IWindowProcedure windowProcedure,
+    IWindowClassManager windowClassManager
+        ) : NativeWindowBase(loggerFactory, windowManager, windowFunction, windowProcedure)
 {
     internal static readonly Type Type = typeof(NativeWindow);
 
@@ -175,7 +194,7 @@ internal sealed partial class NativeWindow(
         var p = parameter_.parameter;
 
         //TODO UIAutomation
-        WindowClass = WindowManager.WindowClassManager.QueryWindowClass(
+        WindowClass = windowClassManager.QueryWindowClass(
             p.className,
             (User32.WNDCLASSEX.CS)p.classStyle
         );
@@ -227,7 +246,7 @@ internal sealed partial class NativeWindow(
             }
         }
 
-        var handle = WindowManager.WindowProcedure.CreateWindow(
+        var handle = WindowFunction.CreateWindow(
             exStyle,
             WindowClass!.ClassName,
             windowTitle,
@@ -290,8 +309,9 @@ internal sealed partial class SubClassNativeWindow : NativeWindowBase
     internal SubClassNativeWindow(
         ILoggerFactory loggerFactory,
         IWindowManagerInternal windowManager,
-        User32.HWND childHWnd
-    ) : base(loggerFactory, windowManager)
+        IWindowFunction windowFunction,
+        IWindowProcedure windowProcedure
+    ) : base(loggerFactory, windowManager, windowFunction, windowProcedure)
     {
         //TODO UIAutomation
     }
@@ -309,7 +329,7 @@ internal sealed partial class SubClassNativeWindow : NativeWindowBase
             Logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
         }
 
-        var (result, error) = this.SetWindowLong(-4, _oldWinProc);
+        var (result, error) = WindowFunction.SetWindowLong(HWND, -4, _oldWinProc);
         if (result == nint.Zero && error.NativeErrorCode != 0)
         {
             Logger.LogWithHWnd(LogLevel.Error, error, "SetWindowLong failed", HWND, Environment.CurrentManagedThreadId);
@@ -334,14 +354,14 @@ internal sealed partial class SubClassNativeWindow : NativeWindowBase
 
         HWND = parameter_.childHWnd;
 
-        var (result, error) = this.SetWindowLong(-4, WindowManager.WindowProcedure.FunctionPointer); //GWLP_WNDPROC
+        var (result, error) = WindowFunction.SetWindowLong(HWND, -4, WindowProcedure.FunctionPointer); //GWLP_WNDPROC
         if (result == nint.Zero && error.NativeErrorCode != 0)
         {
             Logger.LogWithHWndAndError(LogLevel.Error, "SetWindowLong failed", HWND, error.ToString(), Environment.CurrentManagedThreadId);
             ExceptionDispatchInfo.Throw(error);
         }
 
-        if (result == WindowManager.WindowProcedure.FunctionPointer)
+        if (result == WindowProcedure.FunctionPointer)
         {
             //変更前・変更後のWndProcが同じだった＝UIThread経由で作ったWindow　→　先にバイパスしたのにここに来たら異常事態
             throw new InvalidOperationException("already managed");
@@ -392,8 +412,10 @@ internal sealed partial class SubClassNativeWindow2 : NativeWindowBase
 
     internal SubClassNativeWindow2(
         ILoggerFactory loggerFactory,
-        IWindowManagerInternal windowManager
-    ) : base(loggerFactory, windowManager)
+        IWindowManagerInternal windowManager,
+        IWindowFunction windowFunction,
+        IWindowProcedure windowProcedure
+    ) : base(loggerFactory, windowManager, windowFunction, windowProcedure)
     {
         //TODO UIAutomation
 
@@ -412,7 +434,7 @@ internal sealed partial class SubClassNativeWindow2 : NativeWindowBase
             Logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
         }
 
-        var result = Comctl32.RemoveWindowSubclass(HWND, WindowManager.WindowProcedure.SubFunctionPointer, _uidSubclass);
+        var result = Comctl32.RemoveWindowSubclass(HWND, WindowProcedure.SubFunctionPointer, _uidSubclass);
         if (!result)
         {
             var error = new Win32Exception();
@@ -442,7 +464,7 @@ internal sealed partial class SubClassNativeWindow2 : NativeWindowBase
         var result =
             Comctl32.SetWindowSubclass(
                 h,
-                WindowManager.WindowProcedure.SubFunctionPointer,
+                WindowProcedure.SubFunctionPointer,
                 _uidSubclass,
                 0
             );

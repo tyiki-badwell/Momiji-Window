@@ -51,6 +51,7 @@ public partial class WindowProcedureIntegrationTest
         var logger = loggerFactory.CreateLogger<WindowManagerUnitTest>();
 
         IWindowProcedure? proc_ = default;
+        IWindowFunction? func_ = default;
         User32.HWND hwnd_ = default;
 
         var startupTcs = new TaskCompletionSource();
@@ -71,6 +72,7 @@ public partial class WindowProcedureIntegrationTest
             var uiThreadActivator = scope.ServiceProvider.GetRequiredService<IUIThreadActivator>();
 
             var proc = scope.ServiceProvider.GetRequiredService<IWindowProcedure>();
+            var func = scope.ServiceProvider.GetRequiredService<IWindowFunction>();
 
             proc.OnWindowMessage += (hwnd, message) =>
             {
@@ -140,13 +142,14 @@ public partial class WindowProcedureIntegrationTest
             }
 
             proc_ = proc;
+            func_ = func;
 
             try
             {
                 //self thread message
                 if (methodType == MethodType.Post)
                 {
-                    proc.PostMessage(User32.HWND.None, 0, 1, 2);
+                    func.PostMessage(User32.HWND.None, 0, 1, 2);
                 }
                 else if (methodType == MethodType.Send)
                 {
@@ -161,12 +164,12 @@ public partial class WindowProcedureIntegrationTest
                 //window message
                 if (methodType == MethodType.Post)
                 {
-                    proc.PostMessage(hwnd_, 0, 10, 20);
+                    func.PostMessage(hwnd_, 0, 10, 20);
                 }
                 else if (methodType == MethodType.Send)
                 {
                     //direct call
-                    proc.SendMessage(hwnd_, 0, 10, 20);
+                    func.SendMessage(hwnd_, 0, 10, 20);
                 }
                 else
                 {
@@ -280,11 +283,12 @@ public partial class WindowProcedureIntegrationTest
         logger.LogInformation($"Åöthread:[{Environment.CurrentManagedThreadId:X}] task await end");
 
         Assert.IsNotNull(proc_);
+        Assert.IsNotNull(func_);
 
         //thread message
         if (methodType == MethodType.Post)
         {
-            proc_.PostMessage(User32.HWND.None, 0, 100, 200);
+            func_.PostMessage(User32.HWND.None, 0, 100, 200);
         }
         else if (methodType == MethodType.Send)
         {
@@ -299,11 +303,11 @@ public partial class WindowProcedureIntegrationTest
         //window message
         if (methodType == MethodType.Post)
         {
-            proc_.PostMessage(hwnd_, 0, 1000, 2000);
+            func_.PostMessage(hwnd_, 0, 1000, 2000);
         }
         else if (methodType == MethodType.Send)
         {
-            proc_.SendMessage(hwnd_, 0, 1000, 2000);
+            func_.SendMessage(hwnd_, 0, 1000, 2000);
         }
         else
         {
@@ -358,16 +362,16 @@ public partial class WindowProcedureIntegrationTest
             //îjä¸å„ÇÕåƒÇ◊Ç»Ç¢
             if (methodType == MethodType.Post)
             {
-                proc_.PostMessage(User32.HWND.None, 0, 10000, 20000);
+                func_.PostMessage(User32.HWND.None, 0, 10000, 20000);
             }
             else if (methodType == MethodType.Send)
             {
-                proc_.SendMessage(User32.HWND.None, 0, 10000, 20000);
+                func_.SendMessage(User32.HWND.None, 0, 10000, 20000);
             }
 
             Assert.Fail();
         }
-        catch (ObjectDisposedException e)
+        catch (InvalidOperationException e)
         {
             //OK
             logger.LogInformation(e, $"Åöthread:[{Environment.CurrentManagedThreadId:X}] [{methodType}] error occurred");

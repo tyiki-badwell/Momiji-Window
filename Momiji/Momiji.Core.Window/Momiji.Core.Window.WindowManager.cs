@@ -11,13 +11,9 @@ namespace Momiji.Core.Window;
 
 internal interface IWindowManagerInternal : IWindowManager
 {
-    IWindowClassManager WindowClassManager { get; }
-    IWindowProcedure WindowProcedure { get; }
     ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindowInternal, TResult> item, IWindowInternal window);
     int GenerateChildId(IWindowInternal window);
     nuint GenerateSubclassId();
-    void CloseAll();
-    bool IsEmpty { get; }
 }
 
 internal sealed partial class WindowManager : IWindowManagerInternal, IDisposable
@@ -25,14 +21,11 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
     private bool _disposed;
 
     private readonly ILogger<WindowManager> _logger;
-    private readonly IUIThreadActivator _uiThreadActivator;
     private readonly IDispatcherQueue _dispatcherQueue;
-    public IWindowClassManager WindowClassManager { get; }
     public IWindowProcedure WindowProcedure { get; }
     private readonly IDispatcherQueueSynchronizationContext _dispatcherQueueSynchronizationContext;
     private readonly IServiceProvider _serviceProvider; //TODO ActivatorUtilities.CreateInstance のほうがよいか？
     private readonly IWindowMap _windowMap;
-    public bool IsEmpty => _windowMap.IsEmpty;
 
 
     private readonly ConcurrentDictionary<int, WeakReference<IWindowInternal>> _childIdMap = [];
@@ -41,29 +34,22 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
     public WindowManager(
         ILogger<WindowManager> logger,
         IServiceProvider serviceProvider,
-        IUIThreadActivator uiThreadActivator,
         IDispatcherQueue dispatcherQueue,
         IWindowMap windowMap,
         IWindowProcedure windowProcedure,
-        IWindowClassManager windowClassManager,
         IDispatcherQueueSynchronizationContext dispatcherQueueSynchronizationContext
     )
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(serviceProvider);
-        ArgumentNullException.ThrowIfNull(uiThreadActivator);
         ArgumentNullException.ThrowIfNull(dispatcherQueue);
         ArgumentNullException.ThrowIfNull(windowMap);
         ArgumentNullException.ThrowIfNull(windowProcedure);
-        ArgumentNullException.ThrowIfNull(windowClassManager);
         ArgumentNullException.ThrowIfNull(dispatcherQueueSynchronizationContext);
 
         _logger = logger;
 
         _serviceProvider = serviceProvider;
-
-        _uiThreadActivator = uiThreadActivator;
-        _uiThreadActivator.OnInactivated += OnInactivated;
 
         _dispatcherQueue = dispatcherQueue;
         _dispatcherQueueSynchronizationContext = dispatcherQueueSynchronizationContext;
@@ -73,8 +59,6 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
         WindowProcedure = windowProcedure;
         WindowProcedure.OnWindowMessage += OnWindowMessage;
         WindowProcedure.OnThreadMessage += OnThreadMessage;
-
-        WindowClassManager = windowClassManager;
     }
 
     ~WindowManager()
@@ -100,8 +84,6 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
         {
             _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
 
-            _uiThreadActivator.OnInactivated -= OnInactivated;
-
             WindowProcedure.OnWindowMessage -= OnWindowMessage;
             WindowProcedure.OnThreadMessage -= OnThreadMessage;
         }
@@ -123,22 +105,6 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
 
         var id = Interlocked.Increment(ref subclassId);
         return id;
-    }
-
-    public void CloseAll()
-    {
-        _windowMap.CloseAll();
-    }
-
-    private void OnInactivated()
-    {
-        _logger.LogWithLine(LogLevel.Trace, "OnInactivated", Environment.CurrentManagedThreadId);
-        ForceClose();
-    }
-
-    private void ForceClose()
-    {
-        _windowMap.ForceClose();
     }
 
     public async ValueTask<IWindow> CreateWindowAsync(
