@@ -203,7 +203,7 @@ public partial class DispatcherQueueTaskExecutorUnitTest
             executor.DispatchQueue();
             Assert.Fail();
         }
-        catch (Exception e)
+        catch (Exception)
         {
         
         }

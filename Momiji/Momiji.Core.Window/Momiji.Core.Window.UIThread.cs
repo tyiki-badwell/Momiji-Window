@@ -33,6 +33,8 @@ internal sealed partial class UIThread : IUIThreadInternal
     private readonly IDispatcherQueueTaskExecutor _dispatcherQueueTaskExecutor;
     private readonly IDispatcherQueueSynchronizationContext _dispatcherQueueSynchronizationContext;
     private readonly IWindowManagerInternal _windowManager;
+    private readonly IWindowProcedure _windowProcedure;
+    private readonly IWindowMap _windowMap;
     private readonly IOnUnhandledExceptionHandler _onUnhandledExceptionHandler;
 
     private readonly ManualResetEventSlim _queueEvent = new();
@@ -46,6 +48,8 @@ internal sealed partial class UIThread : IUIThreadInternal
         IDispatcherQueueTaskExecutor dispatcherQueueTaskExecutor,
         IDispatcherQueueSynchronizationContext dispatcherQueueSynchronizationContext,
         IWindowManagerInternal windowManager,
+        IWindowProcedure windowProcedure,
+        IWindowMap windowMap,
         IOnUnhandledExceptionHandler onUnhandledExceptionHandler
     )
     {
@@ -55,6 +59,8 @@ internal sealed partial class UIThread : IUIThreadInternal
         ArgumentNullException.ThrowIfNull(dispatcherQueueTaskExecutor);
         ArgumentNullException.ThrowIfNull(dispatcherQueueSynchronizationContext);
         ArgumentNullException.ThrowIfNull(windowManager);
+        ArgumentNullException.ThrowIfNull(windowProcedure);
+        ArgumentNullException.ThrowIfNull(windowMap);
         ArgumentNullException.ThrowIfNull(onUnhandledExceptionHandler);
 
         _loggerFactory = loggerFactory;
@@ -70,6 +76,8 @@ internal sealed partial class UIThread : IUIThreadInternal
         _dispatcherQueueTaskExecutor = dispatcherQueueTaskExecutor;
         //RTWorkQueueManager = new(configuration, _loggerFactory);
         _windowManager = windowManager;
+        _windowProcedure = windowProcedure;
+        _windowMap = windowMap;
 
         _onUnhandledExceptionHandler = onUnhandledExceptionHandler;
     }
@@ -271,12 +279,14 @@ internal sealed partial class UIThread : IUIThreadInternal
             if (forceCancel)
             {
                 _logger.LogWithLine(LogLevel.Information, "force canceled.", Environment.CurrentManagedThreadId);
-                break;
+                _windowMap.ForceClose();
+
+                forceCancel = false;
             }
 
             if (cancelled)
             {
-                if (_windowManager.IsEmpty)
+                if (_windowMap.IsEmpty)
                 {
                     _logger.LogWithLine(LogLevel.Information, "all closed.", Environment.CurrentManagedThreadId);
                     break;
@@ -291,7 +301,7 @@ internal sealed partial class UIThread : IUIThreadInternal
                 cancelled = true;
 
                 _logger.LogWithLine(LogLevel.Information, "canceled.", Environment.CurrentManagedThreadId);
-                _windowManager.CloseAll();
+                _windowMap.CloseAll();
 
                 // 10秒以内にクローズされなければ、ループを終わらせる
                 //TODO 設定にする
@@ -325,7 +335,7 @@ internal sealed partial class UIThread : IUIThreadInternal
                 {
                     //ウインドウメッセージキューのディスパッチ
                     _logger.LogWithLine(LogLevel.Trace, "MsgWaitForMultipleObjectsEx comes window message.", Environment.CurrentManagedThreadId);
-                    _windowManager.WindowProcedure.DispatchMessage();
+                    _windowProcedure.DispatchMessage();
                     continue;
                 }
                 else if (res == 0) // WAIT_OBJECT_0

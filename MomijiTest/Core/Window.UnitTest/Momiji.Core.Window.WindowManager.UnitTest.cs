@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -27,6 +28,7 @@ public partial class WindowManagerUnitTest
             services.AddSingleton<IDispatcherQueue, DummyDispatcherQueue>();
             services.AddSingleton<IDispatcherQueueSynchronizationContext, DummyDispatcherQueueSynchronizationContext>();
             services.AddSingleton<IWindowProcedure, DummyWindowProcedure>();
+            services.AddSingleton<IWindowFunction, DummyWindowFunction>();
             services.AddSingleton<IWindowClass, DummyWindowClass>();
             services.AddSingleton<IWindowClassManager, DummyWindowClassManager>();
             services.AddSingleton<IWindowManagerInternal, WindowManager>();
@@ -70,14 +72,16 @@ public partial class WindowManagerUnitTest
         public event IWindowProcedure.WindowMessageEventHandler? OnWindowMessage;
         public event IWindowProcedure.OnThreadMessageEventHandler? OnThreadMessage;
 
-        public User32.HWND CreateWindow(User32.WS_EX dwExStyle, nint lpszClassName, string windowTitle, User32.WS style, int x, int y, int width, int height, User32.HWND hwndParent, nint hMenu, nint hInst)
-        {
-            return User32.HWND.None;
-        }
         public void DispatchMessage() => throw new NotImplementedException();
         public void Dispose()
         {
         }
+
+        public void ThrowIfOccurredInWndProc() => throw new NotImplementedException();
+    }
+
+    private partial class DummyWindowFunction : IWindowFunction
+    {
         public void PostMessage(User32.HWND hwnd, uint nMsg, nint wParam, nint lParam)
         {
         }
@@ -85,8 +89,15 @@ public partial class WindowManagerUnitTest
         {
             return lParam;
         }
+        public User32.HWND CreateWindow(User32.WS_EX dwExStyle, nint lpszClassName, string windowTitle, User32.WS style, int x, int y, int width, int height, User32.HWND hwndParent, nint hMenu, nint hInst)
+        {
+            return User32.HWND.None;
+        }
 
-        public void ThrowIfOccurredInWndProc() => throw new NotImplementedException();
+        public bool MoveWindow(User32.HWND hwnd, int x, int y, int width, int height, bool repaint) => throw new NotImplementedException();
+        public bool ShowWindow(User32.HWND hwnd, int cmdShow) => throw new NotImplementedException();
+        public bool SetWindowStyle(User32.HWND hwnd, int style) => throw new NotImplementedException();
+        public (nint, Win32Exception) SetWindowLong(User32.HWND hwnd, int nIndex, nint dwNewLong) => throw new NotImplementedException();
     }
 
     private partial class DummyWindowClass : IWindowClass
@@ -121,6 +132,8 @@ public partial class WindowManagerUnitTest
 
         public ILogger Logger => throw new NotImplementedException();
 
+        public IWindowFunction WindowFunction => throw new NotImplementedException();
+
         public bool Close() => throw new NotImplementedException();
         public ValueTask<T> EnqueueAsync<T>(Func<IWindow, T> func) => throw new NotImplementedException();
         public void Dispose() => throw new NotImplementedException();
@@ -147,8 +160,6 @@ public partial class WindowManagerUnitTest
         using var host = Setup();
         var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
 
-        Assert.IsNotNull(windowManager.WindowClassManager);
-        Assert.IsNotNull(windowManager.WindowProcedure);
     }
 
     [TestMethod]
@@ -173,25 +184,13 @@ public partial class WindowManagerUnitTest
     }
 
     [TestMethod]
-    public void TestCloseAll()
-    {
-        using var host = Setup();
-        var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
-        var logger = loggerFactory.CreateLogger<WindowManagerUnitTest>();
-        var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
-
-        windowManager.CloseAll();
-
-    }
-
-
-    [TestMethod]
     public async Task TestCreateWindow()
     {
         using var host = Setup();
         var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
         var logger = loggerFactory.CreateLogger<WindowManagerUnitTest>();
         var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
+        var windowMap = host.Services.GetRequiredService<IWindowMap>();
 
         var window = await windowManager.CreateWindowAsync(new() { 
             onMessage = (sender, message) => {
@@ -216,7 +215,7 @@ public partial class WindowManagerUnitTest
         window.PostMessage(0, 0, 0);
 
         //全部クローズ
-        windowManager.CloseAll();
+        windowMap.CloseAll();
 
         //個別のcloseは失敗するが許している
         window.Close();

@@ -1,10 +1,5 @@
-﻿using System.ComponentModel;
-using System.Runtime.InteropServices;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using Momiji.Internal.Window;
-using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
@@ -48,7 +43,8 @@ public static class IWindowExtensions
     {
         return await window.EnqueueAsync(
             (window) =>
-            ((IWindowInternal)window).MoveImpl(
+            ((IWindowInternal)window).WindowFunction.MoveWindow(
+                ((IWindowInternal)window).HWND,
                 x,
                 y,
                 width,
@@ -58,36 +54,6 @@ public static class IWindowExtensions
         );
     }
 
-    private static bool MoveImpl(
-        this IWindowInternal window,
-        int x,
-        int y,
-        int width,
-        int height,
-        bool repaint
-    )
-    {
-        if (window.Logger.IsEnabled(LogLevel.Information))
-        {
-            window.Logger.LogWithHWnd(LogLevel.Information, $"MoveWindow x:[{x}] y:[{y}] width:[{width}] height:[{height}] repaint:[{repaint}]", window.HWND, Environment.CurrentManagedThreadId);
-        }
-        var result =
-            User32.MoveWindow(
-                window.HWND,
-                x,
-                y,
-                width,
-                height,
-                repaint
-        );
-
-        if (!result)
-        {
-            var error = new Win32Exception();
-            window.Logger.LogWithHWndAndError(LogLevel.Error, "MoveWindow", window.HWND, error.ToString(), Environment.CurrentManagedThreadId);
-        }
-        return result;
-    }
 
     public static async ValueTask<bool> ShowAsync(
         this IWindow window,
@@ -96,54 +62,13 @@ public static class IWindowExtensions
     {
         return await window.EnqueueAsync(
             (window) =>
-            ((IWindowInternal)window).ShowImpl(cmdShow)
+            ((IWindowInternal)window).WindowFunction.ShowWindow(
+                ((IWindowInternal)window).HWND,
+                cmdShow
+            )
         );
     }
 
-    private static bool ShowImpl(
-        this IWindowInternal window,
-        int cmdShow
-    )
-    {
-        if (window.Logger.IsEnabled(LogLevel.Information))
-        {
-            window.Logger.LogWithHWnd(LogLevel.Information, $"ShowWindow cmdShow:[{cmdShow}]", window.HWND, Environment.CurrentManagedThreadId);
-        }
-        var result =
-            User32.ShowWindow(
-                window.HWND,
-                cmdShow
-            );
-
-        var errorCode = Marshal.GetLastPInvokeError();
-
-        //result=0: 実行前は非表示だった/ <>0:実行前から表示されていた
-        if (window.Logger.IsEnabled(LogLevel.Information))
-        {
-            window.Logger.LogWithHWndAndError(LogLevel.Information, $"ShowWindow result:[{result}]", window.HWND, errorCode, Environment.CurrentManagedThreadId);
-        }
-
-        if (errorCode == 1400) // ERROR_INVALID_WINDOW_HANDLE
-        {
-            var error = new Win32Exception(errorCode);
-            throw error;
-        }
-
-        {
-            var wndpl = new User32.WINDOWPLACEMENT()
-            {
-                length = Marshal.SizeOf<User32.WINDOWPLACEMENT>()
-            };
-            User32.GetWindowPlacement(window.HWND, ref wndpl);
-
-            if (window.Logger.IsEnabled(LogLevel.Information))
-            {
-                window.Logger.LogWithHWnd(LogLevel.Information, $"GetWindowPlacement result cmdShow:[{cmdShow}] -> wndpl:[{wndpl}]", window.HWND, Environment.CurrentManagedThreadId);
-            }
-        }
-
-        return result;
-    }
 
     public static async ValueTask<bool> SetWindowStyleAsync(
         this IWindow window,
@@ -152,109 +77,11 @@ public static class IWindowExtensions
     {
         return await window.EnqueueAsync(
             (window) =>
-            ((IWindowInternal)window).SetWindowStyleImpl(style)
+            ((IWindowInternal)window).WindowFunction.SetWindowStyle(
+                ((IWindowInternal)window).HWND,
+                style
+            )
         );
-    }
-
-    private static bool SetWindowStyleImpl(
-        this IWindowInternal window,
-        int style
-    )
-    {
-        //TODO DPI対応
-        var clientRect = new User32.RECT();
-
-        {
-            var result = User32.GetClientRect(window.HWND, ref clientRect);
-            if (!result)
-            {
-                var error = new Win32Exception();
-                window.Logger.LogWithHWndAndError(LogLevel.Error, "GetClientRect failed", window.HWND, error.ToString(), Environment.CurrentManagedThreadId);
-                return false;
-            }
-        }
-
-        {
-            var result = User32.AdjustWindowRectExForDpi(ref clientRect, style, false, 0, 96);
-            if (!result)
-            {
-                var error = new Win32Exception();
-                window.Logger.LogWithHWndAndError(LogLevel.Error, "AdjustWindowRectExForDpi failed", window.HWND, error.ToString(), Environment.CurrentManagedThreadId);
-                return false;
-            }
-        }
-
-        {
-            var (result, error) = window.SetWindowLong(-16, new nint(style)); //GWL_STYLE
-            if (result == nint.Zero && error.NativeErrorCode != 0)
-            {
-                window.Logger.LogWithHWndAndError(LogLevel.Error, "SetWindowLong failed", window.HWND, error.ToString(), Environment.CurrentManagedThreadId);
-                return false;
-            }
-        }
-
-        {
-            var width = clientRect.right - clientRect.left;
-            var height = clientRect.bottom - clientRect.top;
-
-            window.Logger.LogWithHWnd(LogLevel.Information, "SetWindowPos", window.HWND, Environment.CurrentManagedThreadId);
-            var result =
-                User32.SetWindowPos(
-                        window.HWND,
-                        User32.HWND.None,
-                        0,
-                        0,
-                        width,
-                        height,
-                        0x0002 //SWP_NOMOVE
-                               //| 0x0001 //SWP_NOSIZE
-                        | 0x0004 //SWP_NOZORDER
-                        | 0x0020 //SWP_FRAMECHANGED
-                    );
-
-            if (!result)
-            {
-                var error = new Win32Exception();
-                window.Logger.LogWithHWndAndError(LogLevel.Error, "SetWindowPos failed", window.HWND, error.ToString(), Environment.CurrentManagedThreadId);
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    internal static (nint, Win32Exception) SetWindowLong(
-        this IWindow window,
-        int nIndex,
-        nint dwNewLong
-    )
-    {
-        var window_ = (IWindowInternal)window;
-        var isWindowUnicode = (window_.HWND.Handle != User32.HWND.None.Handle) && User32.IsWindowUnicode(window_.HWND);
-
-        //SetWindowLong～のエラー判定のために、エラーコードをリセットする
-        Marshal.SetLastPInvokeError(0);
-
-        if (window_.Logger.IsEnabled(LogLevel.Information))
-        {
-            window_.Logger.LogWithHWnd(LogLevel.Information, $"SetWindowLong nIndex:[{nIndex:X}] dwNewLong:[{dwNewLong:X}]", window_.HWND, Environment.CurrentManagedThreadId);
-        }
-
-        var result = isWindowUnicode
-                        ? Environment.Is64BitProcess
-                            ? User32.SetWindowLongPtrW(window_.HWND, nIndex, dwNewLong)
-                            : User32.SetWindowLongW(window_.HWND, nIndex, dwNewLong)
-                        : Environment.Is64BitProcess
-                            ? User32.SetWindowLongPtrA(window_.HWND, nIndex, dwNewLong)
-                            : User32.SetWindowLongA(window_.HWND, nIndex, dwNewLong)
-                        ;
-        var errorCode = Marshal.GetLastPInvokeError();
-        var error = new Win32Exception(errorCode);
-        if (window_.Logger.IsEnabled(LogLevel.Information))
-        {
-            window_.Logger.LogWithHWndAndError(LogLevel.Information, $"SetWindowLong result:[{result:X}]", window_.HWND, error.ToString(), Environment.CurrentManagedThreadId);
-        }
-        return (result, error);
     }
 }
 
@@ -276,6 +103,7 @@ public static class IHostBuilderExtensions
             services.AddScoped<IWindowMap, WindowMap>();
             services.AddScoped<IWindowManagerInternal, WindowManager>();
             services.AddScoped<IWindowProcedure, WindowProcedure>();
+            services.AddScoped<IWindowFunction, WindowFunction>();
             services.AddScoped<IWindowClassManager, WindowClassManager>();
 
             services.AddTransient<IWindowClass, WindowClass>();

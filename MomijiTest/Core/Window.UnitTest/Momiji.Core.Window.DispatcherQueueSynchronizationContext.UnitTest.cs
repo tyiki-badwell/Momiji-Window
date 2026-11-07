@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -12,6 +13,23 @@ public partial class DispatcherQueueSynchronizationContextUnitTest
     {
     }
 
+    private class DispatcherQueueDummy : IDispatcherQueue
+    {
+        public int Count => throw new NotImplementedException();
+
+        public event IDispatcherQueue.EnqueueHandler? OnEnqueue;
+
+        public void Dispose()
+        {
+        }
+        public void Enqueue(SendOrPostCallback callback, object? param)
+        {
+        }
+        public void Enqueue(Action action) => throw new NotImplementedException();
+        public ValueTask<TResult> EnqueueAsync<TResult>(Func<TResult> func) => throw new NotImplementedException();
+        public bool TryDequeue([MaybeNullWhen(false)] out object item) => throw new NotImplementedException();
+    }
+
     private static IHost Setup()
     {
         var builder = Host.CreateDefaultBuilder(default);
@@ -20,8 +38,7 @@ public partial class DispatcherQueueSynchronizationContextUnitTest
         builder.UseConsoleLifetime();
         builder.ConfigureServices((hostContext, services) =>
         {
-            services.AddSingleton<IUIThreadActivator, UIThreadActivator>();
-            services.AddSingleton<IDispatcherQueue, DispatcherQueue>();
+            services.AddSingleton<IDispatcherQueue, DispatcherQueueDummy>();
         });
 
         return builder.Build();
@@ -72,7 +89,7 @@ public partial class DispatcherQueueSynchronizationContextUnitTest
     }
 
     [TestMethod]
-    public async Task TestPostNoActive()
+    public async Task TestPost()
     {
         using var host = Setup();
         var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
@@ -82,35 +99,6 @@ public partial class DispatcherQueueSynchronizationContextUnitTest
             loggerFactory.CreateLogger<DispatcherQueueSynchronizationContext>(),
             dispatcherQueue
         );
-
-        try
-        {
-            context.Post(state =>
-            {
-            }, "TestState");
-
-            Assert.Fail();
-        }
-        catch (InvalidOperationException)
-        {
-            //OK
-        }
-    }
-
-    [TestMethod]
-    public async Task TestPostActive()
-    {
-        using var host = Setup();
-        var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
-        var dispatcherQueue = host.Services.GetRequiredService<IDispatcherQueue>();
-        var activator = host.Services.GetRequiredService<IUIThreadActivator>();
-
-        var context = new DispatcherQueueSynchronizationContext(
-            loggerFactory.CreateLogger<DispatcherQueueSynchronizationContext>(),
-            dispatcherQueue
-        );
-
-        using var token = activator.Activate();
 
         context.Post(state =>
         {
