@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
-using Momiji.Core.Window;
 using Momiji.Internal.Window;
+
+namespace Momiji.Core.Window;
 
 internal partial class OnUnhandledExceptionHandler : IOnUnhandledExceptionHandler, IDisposable
 {

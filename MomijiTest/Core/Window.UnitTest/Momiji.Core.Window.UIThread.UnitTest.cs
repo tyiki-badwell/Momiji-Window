@@ -23,9 +23,10 @@ public partial class UIThreadUnitTest
         {
             services.AddSingleton<IUIThreadActivator, UIThreadActivator>();
             services.AddSingleton<IOnUnhandledExceptionHandler, OnUnhandledExceptionHandler>();
-            services.AddSingleton<IWindowManagerInternal, WindowManager>();
+            services.AddSingleton<IWindowManager, WindowManager>();
             services.AddSingleton<IWindowMap, WindowMap>();
             services.AddSingleton<IWindowProcedure, WindowProcedure>();
+            services.AddSingleton<IWindowFunction, WindowFunction>();
             services.AddSingleton<IWindowClassManager, WindowClassManager>();
             services.AddSingleton<IDispatcherQueue, DispatcherQueue>();
             services.AddSingleton<IDispatcherQueueTaskExecutor, DispatcherQueueTaskExecutor>();
@@ -43,8 +44,9 @@ public partial class UIThreadUnitTest
         var dispatcherQueue = host.Services.GetRequiredService<IDispatcherQueue>();
         var dispatcherQueueTaskExecutor = host.Services.GetRequiredService<IDispatcherQueueTaskExecutor>();
         var context = host.Services.GetRequiredService<IDispatcherQueueSynchronizationContext>();
-        var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
+        var windowManager = host.Services.GetRequiredService<IWindowManager>();
         var windowProcedure = host.Services.GetRequiredService<IWindowProcedure>();
+        var windowFunction = host.Services.GetRequiredService<IWindowFunction>();
         var windowMap = host.Services.GetRequiredService<IWindowMap>();
         var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
 
@@ -56,6 +58,7 @@ public partial class UIThreadUnitTest
             context,
             windowManager,
             windowProcedure,
+            windowFunction,
             windowMap,
             onUnhandledExceptionHandler
         );
@@ -70,8 +73,9 @@ public partial class UIThreadUnitTest
         var dispatcherQueue = host.Services.GetRequiredService<IDispatcherQueue>();
         var dispatcherQueueTaskExecutor = host.Services.GetRequiredService<IDispatcherQueueTaskExecutor>();
         var context = host.Services.GetRequiredService<IDispatcherQueueSynchronizationContext>();
-        var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
+        var windowManager = host.Services.GetRequiredService<IWindowManager>();
         var windowProcedure = host.Services.GetRequiredService<IWindowProcedure>();
+        var windowFunction = host.Services.GetRequiredService<IWindowFunction>();
         var windowMap = host.Services.GetRequiredService<IWindowMap>();
         var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
 
@@ -83,6 +87,7 @@ public partial class UIThreadUnitTest
             context,
             windowManager,
             windowProcedure,
+            windowFunction,
             windowMap,
             onUnhandledExceptionHandler
         );
@@ -97,8 +102,9 @@ public partial class UIThreadUnitTest
         var dispatcherQueue = host.Services.GetRequiredService<IDispatcherQueue>();
         var dispatcherQueueTaskExecutor = host.Services.GetRequiredService<IDispatcherQueueTaskExecutor>();
         var context = host.Services.GetRequiredService<IDispatcherQueueSynchronizationContext>();
-        var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
+        var windowManager = host.Services.GetRequiredService<IWindowManager>();
         var windowProcedure = host.Services.GetRequiredService<IWindowProcedure>();
+        var windowFunction = host.Services.GetRequiredService<IWindowFunction>();
         var windowMap = host.Services.GetRequiredService<IWindowMap>();
         var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
 
@@ -110,6 +116,7 @@ public partial class UIThreadUnitTest
             context,
             windowManager,
             windowProcedure,
+            windowFunction,
             windowMap,
             onUnhandledExceptionHandler
         );
@@ -131,8 +138,9 @@ public partial class UIThreadUnitTest
                 var dispatcherQueue = host.Services.GetRequiredService<IDispatcherQueue>();
                 var dispatcherQueueTaskExecutor = host.Services.GetRequiredService<IDispatcherQueueTaskExecutor>();
                 var context = host.Services.GetRequiredService<IDispatcherQueueSynchronizationContext>();
-                var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
+                var windowManager = host.Services.GetRequiredService<IWindowManager>();
                 var windowProcedure = host.Services.GetRequiredService<IWindowProcedure>();
+                var windowFunction = host.Services.GetRequiredService<IWindowFunction>();
                 var windowMap = host.Services.GetRequiredService<IWindowMap>();
                 var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
 
@@ -144,6 +152,7 @@ public partial class UIThreadUnitTest
                     context,
                     windowManager,
                     windowProcedure,
+                    windowFunction,
                     windowMap,
                     onUnhandledExceptionHandler
                 );
@@ -166,8 +175,9 @@ public partial class UIThreadUnitTest
         var dispatcherQueue = host.Services.GetRequiredService<IDispatcherQueue>();
         var dispatcherQueueTaskExecutor = host.Services.GetRequiredService<IDispatcherQueueTaskExecutor>();
         var context = host.Services.GetRequiredService<IDispatcherQueueSynchronizationContext>();
-        var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
+        var windowManager = host.Services.GetRequiredService<IWindowManager>();
         var windowProcedure = host.Services.GetRequiredService<IWindowProcedure>();
+        var windowFunction = host.Services.GetRequiredService<IWindowFunction>();
         var windowMap = host.Services.GetRequiredService<IWindowMap>();
         var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
 
@@ -179,6 +189,7 @@ public partial class UIThreadUnitTest
             context,
             windowManager,
             windowProcedure,
+            windowFunction,
             windowMap,
             onUnhandledExceptionHandler
         );
@@ -197,8 +208,9 @@ public partial class UIThreadUnitTest
         var dispatcherQueue = host.Services.GetRequiredService<IDispatcherQueue>();
         var dispatcherQueueTaskExecutor = host.Services.GetRequiredService<IDispatcherQueueTaskExecutor>();
         var context = host.Services.GetRequiredService<IDispatcherQueueSynchronizationContext>();
-        var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
+        var windowManager = host.Services.GetRequiredService<IWindowManager>();
         var windowProcedure = host.Services.GetRequiredService<IWindowProcedure>();
+        var windowFunction = host.Services.GetRequiredService<IWindowFunction>();
         var windowMap = host.Services.GetRequiredService<IWindowMap>();
         var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
 
@@ -210,6 +222,7 @@ public partial class UIThreadUnitTest
             context,
             windowManager,
             windowProcedure,
+            windowFunction,
             windowMap,
             onUnhandledExceptionHandler
         );
@@ -251,8 +264,9 @@ public partial class UIThreadUnitTest
         var uiThreadActivator = host.Services.GetRequiredService<IUIThreadActivator>();
         var dispatcherQueue = host.Services.GetRequiredService<IDispatcherQueue>();
         var dispatcherQueueTaskExecutor = host.Services.GetRequiredService<IDispatcherQueueTaskExecutor>();
-        var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
+        var windowManager = host.Services.GetRequiredService<IWindowManager>();
         var windowProcedure = host.Services.GetRequiredService<IWindowProcedure>();
+        var windowFunction = host.Services.GetRequiredService<IWindowFunction>();
         var windowMap = host.Services.GetRequiredService<IWindowMap>();
         var context = host.Services.GetRequiredService<IDispatcherQueueSynchronizationContext>();
         var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
@@ -265,6 +279,7 @@ public partial class UIThreadUnitTest
             context,
             windowManager,
             windowProcedure,
+            windowFunction,
             windowMap,
             onUnhandledExceptionHandler
         );
@@ -311,8 +326,9 @@ public partial class UIThreadUnitTest
             var uiThreadActivator = host.Services.GetRequiredService<IUIThreadActivator>();
             var dispatcherQueue = host.Services.GetRequiredService<IDispatcherQueue>();
             var dispatcherQueueTaskExecutor = host.Services.GetRequiredService<IDispatcherQueueTaskExecutor>();
-            var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
+            var windowManager = host.Services.GetRequiredService<IWindowManager>();
             var windowProcedure = host.Services.GetRequiredService<IWindowProcedure>();
+            var windowFunction = host.Services.GetRequiredService<IWindowFunction>();
             var windowMap = host.Services.GetRequiredService<IWindowMap>();
             var context = host.Services.GetRequiredService<IDispatcherQueueSynchronizationContext>();
             var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
@@ -325,6 +341,7 @@ public partial class UIThreadUnitTest
                 context,
                 windowManager,
                 windowProcedure,
+                windowFunction,
                 windowMap,
                 onUnhandledExceptionHandler
             );

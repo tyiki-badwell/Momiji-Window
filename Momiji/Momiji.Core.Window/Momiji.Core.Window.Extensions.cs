@@ -101,7 +101,7 @@ public static class IHostBuilderExtensions
             services.AddScoped<IDispatcherQueueSynchronizationContext, DispatcherQueueSynchronizationContext>();
             services.AddScoped<IDispatcherQueueTaskExecutor, DispatcherQueueTaskExecutor>();
             services.AddScoped<IWindowMap, WindowMap>();
-            services.AddScoped<IWindowManagerInternal, WindowManager>();
+            services.AddScoped<IWindowManager, WindowManager>();
             services.AddScoped<IWindowProcedure, WindowProcedure>();
             services.AddScoped<IWindowFunction, WindowFunction>();
             services.AddScoped<IWindowClassManager, WindowClassManager>();

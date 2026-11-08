@@ -1,5 +1,4 @@
-﻿using System.Collections.Concurrent;
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -9,32 +8,20 @@ using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
-internal interface IWindowManagerInternal : IWindowManager
-{
-    ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindowInternal, TResult> item, IWindowInternal window);
-    int GenerateChildId(IWindowInternal window);
-    nuint GenerateSubclassId();
-}
-
-internal sealed partial class WindowManager : IWindowManagerInternal, IDisposable
+internal sealed partial class WindowManager : IWindowManager, IDisposable
 {
     private bool _disposed;
 
     private readonly ILogger<WindowManager> _logger;
-    private readonly IDispatcherQueue _dispatcherQueue;
-    public IWindowProcedure WindowProcedure { get; }
+    private readonly IWindowProcedure _windowProcedure;
     private readonly IDispatcherQueueSynchronizationContext _dispatcherQueueSynchronizationContext;
     private readonly IServiceProvider _serviceProvider; //TODO ActivatorUtilities.CreateInstance のほうがよいか？
     private readonly IWindowMap _windowMap;
 
 
-    private readonly ConcurrentDictionary<int, WeakReference<IWindowInternal>> _childIdMap = [];
-    private int childId;
-    private uint subclassId;
     public WindowManager(
         ILogger<WindowManager> logger,
         IServiceProvider serviceProvider,
-        IDispatcherQueue dispatcherQueue,
         IWindowMap windowMap,
         IWindowProcedure windowProcedure,
         IDispatcherQueueSynchronizationContext dispatcherQueueSynchronizationContext
@@ -42,7 +29,6 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(serviceProvider);
-        ArgumentNullException.ThrowIfNull(dispatcherQueue);
         ArgumentNullException.ThrowIfNull(windowMap);
         ArgumentNullException.ThrowIfNull(windowProcedure);
         ArgumentNullException.ThrowIfNull(dispatcherQueueSynchronizationContext);
@@ -51,14 +37,13 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
 
         _serviceProvider = serviceProvider;
 
-        _dispatcherQueue = dispatcherQueue;
         _dispatcherQueueSynchronizationContext = dispatcherQueueSynchronizationContext;
 
         _windowMap = windowMap;
 
-        WindowProcedure = windowProcedure;
-        WindowProcedure.OnWindowMessage += OnWindowMessage;
-        WindowProcedure.OnThreadMessage += OnThreadMessage;
+        _windowProcedure = windowProcedure;
+        _windowProcedure.OnWindowMessage += OnWindowMessage;
+        _windowProcedure.OnThreadMessage += OnThreadMessage;
     }
 
     ~WindowManager()
@@ -84,28 +69,12 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
         {
             _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
 
-            WindowProcedure.OnWindowMessage -= OnWindowMessage;
-            WindowProcedure.OnThreadMessage -= OnThreadMessage;
+            _windowProcedure.OnWindowMessage -= OnWindowMessage;
+            _windowProcedure.OnThreadMessage -= OnThreadMessage;
         }
     }
 
 
-    public int GenerateChildId(IWindowInternal window)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-
-        var id = Interlocked.Increment(ref childId);
-        _childIdMap.TryAdd(id, new(window));
-        return id;
-    }
-
-    public nuint GenerateSubclassId()
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-
-        var id = Interlocked.Increment(ref subclassId);
-        return id;
-    }
 
     public async ValueTask<IWindow> CreateWindowAsync(
         IWindowManager.CreateWindowParameter parameter
@@ -120,7 +89,7 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
         };
         try
         {
-            return await EnqueueAsync((window) =>
+            return await _windowMap.EnqueueAsync((window) =>
             {
                 window.Initialize(parameter_);
                 return window;
@@ -131,20 +100,6 @@ internal sealed partial class WindowManager : IWindowManagerInternal, IDisposabl
             _logger.LogWithLine(LogLevel.Error, e, "Initialize failed.", Environment.CurrentManagedThreadId);
             throw;
         }
-    }
-
-    public async ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindowInternal, TResult> item, IWindowInternal window)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-
-        _logger.LogWithLine(LogLevel.Trace, "EnqueueAsync", Environment.CurrentManagedThreadId);
-
-        TResult func()
-        {
-            return _windowMap.InvokeWithContext(item, window);
-        }
-
-        return await _dispatcherQueue.EnqueueAsync(func);
     }
 
     private void OnThreadMessage(IWindowManager.IMessage message)
