@@ -69,9 +69,10 @@ public partial class UIThreadFactoryTest
         using var host = Setup();
         var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
 
-        var threadFactory = new UIThreadFactory(
+        using var threadFactory = new UIThreadFactory(
             loggerFactory.CreateLogger<UIThreadFactory>(),
             host.Services.GetRequiredService<IUIThreadMap>(),
+            host.Services.GetRequiredService<IOnUnhandledExceptionHandler>(),
             host.Services.GetRequiredService<IServiceScopeFactory>()
         );
     }
@@ -83,9 +84,10 @@ public partial class UIThreadFactoryTest
         var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
         var logger = loggerFactory.CreateLogger<UIThreadFactoryTest>();
 
-        var threadFactory = new UIThreadFactory(
+        using var threadFactory = new UIThreadFactory(
             loggerFactory.CreateLogger<UIThreadFactory>(),
             host.Services.GetRequiredService<IUIThreadMap>(),
+            host.Services.GetRequiredService<IOnUnhandledExceptionHandler>(),
             host.Services.GetRequiredService<IServiceScopeFactory>()
         );
 
@@ -117,20 +119,23 @@ public partial class UIThreadFactoryTest
         var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
         var logger = loggerFactory.CreateLogger<UIThreadFactoryTest>();
 
-        var threadFactory = new UIThreadFactory(
+        using var threadFactory = new UIThreadFactory(
             loggerFactory.CreateLogger<UIThreadFactory>(),
             host.Services.GetRequiredService<IUIThreadMap>(),
+            host.Services.GetRequiredService<IOnUnhandledExceptionHandler>(),
             host.Services.GetRequiredService<IServiceScopeFactory>()
         );
 
+        Exception? e = default;
         try
         {
             var thread = await threadFactory.StartAsync();
             Assert.Fail();
         }
-        catch (Exception e)
+        catch (Exception e_)
         {
-            Assert.AreEqual("ERROR", e.Message);
+            e = e_;
         }
+        Assert.AreEqual("ERROR", e?.Message);
     }
 }

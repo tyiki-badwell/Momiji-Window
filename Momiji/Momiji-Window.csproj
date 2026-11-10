@@ -15,7 +15,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <SignAssembly>false</SignAssembly>
+    <SignAssembly>True</SignAssembly>
     <PackageId>Momiji.Window</PackageId>
     <Version>0.0.1-alpha.1</Version>
     <Authors>tyiki-badwell</Authors>

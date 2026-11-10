@@ -178,7 +178,7 @@ public partial class UIThreadMapUnitTest
     }
 
     [TestMethod]
-    public async Task TestCancelAllAsyncError()
+    public async Task TestDisposeWithCancelAllAsyncError()
     {
         using var host = Setup();
         var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
@@ -195,25 +195,8 @@ public partial class UIThreadMapUnitTest
         map.Add(thread, task);
     }
 
-    internal class UIThreadDummyCancelAsyncEternal : IUIThreadInternal
-    {
-        public event IUIThread.InactivatedEventHandler? OnInactivated;
-
-        public async ValueTask CancelAsync()
-        {
-            await Task.Delay(1000000);
-        }
-        public void Dispose() => throw new NotImplementedException();
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-        public ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindowManager, TResult> item) => throw new NotImplementedException();
-        public void RunMessageLoop(TaskCompletionSource<IUIThread> startTcs, CancellationToken ct = default)
-        {
-            startTcs.TrySetResult(this);
-        }
-    }
-
     [TestMethod]
-    public async Task TestCancelAllAsyncEndless()
+    public async Task TestDisposeWithCancelAllAsyncEndless()
     {
         using var host = Setup();
         var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
@@ -228,7 +211,6 @@ public partial class UIThreadMapUnitTest
         var task = Task.CompletedTask;
 
         map.Add(thread, task);
-        //await map.CancelAllAsync();
     }
 
 }

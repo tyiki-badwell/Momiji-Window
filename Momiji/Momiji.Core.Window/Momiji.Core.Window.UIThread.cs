@@ -222,14 +222,6 @@ internal sealed partial class UIThread : IUIThreadInternal
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, ct);
-        var linkedCt = linkedCts.Token;
-
-        using var waitHandlesPin = new PinnedBuffer<nint[]>([
-            _queueEvent.WaitHandle.SafeWaitHandle.DangerousGetHandle(),
-            linkedCt.WaitHandle.SafeWaitHandle.DangerousGetHandle()
-        ]);
-
         _windowFunction.Setup();
 
         _logger.LogWithLine(LogLevel.Information, "start message loop", Environment.CurrentManagedThreadId);
@@ -241,10 +233,10 @@ internal sealed partial class UIThread : IUIThreadInternal
 
             startTcs.SetResult(this);
 
-            RunMessageLoopMain(
-                waitHandlesPin,
-                linkedCt
-            );
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, ct);
+            var linkedCt = linkedCts.Token;
+
+            RunMessageLoopMain(linkedCt);
 
             //TODO ここを抜けてactiveを破棄した後でSendOrPostCallbackが呼ばれる場合がある. 待つ方法？
 
@@ -264,10 +256,14 @@ internal sealed partial class UIThread : IUIThreadInternal
     }
 
     private void RunMessageLoopMain(
-        PinnedBuffer<nint[]> waitHandlesPin,
         CancellationToken ct
     )
     {
+        using var waitHandlesPin = new PinnedBuffer<nint[]>([
+            _queueEvent.WaitHandle.SafeWaitHandle.DangerousGetHandle(),
+            ct.WaitHandle.SafeWaitHandle.DangerousGetHandle()
+        ]);
+
         using var switchContext = new DispatcherQueueSynchronizationContextScope(_dispatcherQueueSynchronizationContext, _logger);
 
         var forceCancel = false;
@@ -309,8 +305,15 @@ internal sealed partial class UIThread : IUIThreadInternal
                     Task.Delay(10000, CancellationToken.None)
                     .ContinueWith(
                         (task) => {
-                            _logger.LogWithLine(LogLevel.Warning, "forceCancel", Environment.CurrentManagedThreadId);
-                            forceCancel = true; 
+                            if (_windowMap.IsEmpty)
+                            {
+                                _logger.LogWithLine(LogLevel.Trace, "windowMap.IsEmpty", Environment.CurrentManagedThreadId);
+                            }
+                            else
+                            {
+                                _logger.LogWithLine(LogLevel.Warning, "forceCancel", Environment.CurrentManagedThreadId);
+                                forceCancel = true;
+                            }
                         },
                         TaskScheduler.Default
                     );

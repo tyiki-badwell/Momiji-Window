@@ -76,8 +76,8 @@ public partial class Worker : BackgroundService
         var f = scope.ServiceProvider.GetRequiredService<IUIThreadFactory>();
         var h = scope.ServiceProvider.GetRequiredService<IOnUnhandledExceptionHandler>();
 
-        var a = await f.StartAsync();
-        var b = await f.StartAsync();
+        var a = await f.StartAsync(stoppingToken);
+        var b = await f.StartAsync(stoppingToken);
 
         var classStyle = 0;
         classStyle |= 0x00000020; //CS_OWNDC

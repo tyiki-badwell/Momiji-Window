@@ -24,6 +24,7 @@
     <!--VerifyReferenceAotCompatibility>true</VerifyReferenceAotCompatibility-->
     <ControlFlowGuard>Guard</ControlFlowGuard>
     <CetCompat>true</CetCompat>
+    <SignAssembly>True</SignAssembly>
 
   </PropertyGroup>
 
