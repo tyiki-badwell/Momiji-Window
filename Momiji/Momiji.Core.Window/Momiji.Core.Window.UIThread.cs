@@ -1,10 +1,7 @@
 ﻿using System.ComponentModel;
-using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using Momiji.Core.Buffer;
 using Momiji.Internal.Window;
-using Kernel32 = Momiji.Interop.Kernel32.NativeMethods;
-using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
@@ -32,8 +29,9 @@ internal sealed partial class UIThread : IUIThreadInternal
     private readonly IDispatcherQueue _dispatcherQueue;
     private readonly IDispatcherQueueTaskExecutor _dispatcherQueueTaskExecutor;
     private readonly IDispatcherQueueSynchronizationContext _dispatcherQueueSynchronizationContext;
-    private readonly IWindowManagerInternal _windowManager;
+    private readonly IWindowManager _windowManager;
     private readonly IWindowProcedure _windowProcedure;
+    private readonly IWindowFunction _windowFunction;
     private readonly IWindowMap _windowMap;
     private readonly IOnUnhandledExceptionHandler _onUnhandledExceptionHandler;
 
@@ -47,8 +45,9 @@ internal sealed partial class UIThread : IUIThreadInternal
         IDispatcherQueue dispatcherQueue,
         IDispatcherQueueTaskExecutor dispatcherQueueTaskExecutor,
         IDispatcherQueueSynchronizationContext dispatcherQueueSynchronizationContext,
-        IWindowManagerInternal windowManager,
+        IWindowManager windowManager,
         IWindowProcedure windowProcedure,
+        IWindowFunction windowFunction,
         IWindowMap windowMap,
         IOnUnhandledExceptionHandler onUnhandledExceptionHandler
     )
@@ -60,6 +59,7 @@ internal sealed partial class UIThread : IUIThreadInternal
         ArgumentNullException.ThrowIfNull(dispatcherQueueSynchronizationContext);
         ArgumentNullException.ThrowIfNull(windowManager);
         ArgumentNullException.ThrowIfNull(windowProcedure);
+        ArgumentNullException.ThrowIfNull(windowFunction);
         ArgumentNullException.ThrowIfNull(windowMap);
         ArgumentNullException.ThrowIfNull(onUnhandledExceptionHandler);
 
@@ -77,6 +77,7 @@ internal sealed partial class UIThread : IUIThreadInternal
         //RTWorkQueueManager = new(configuration, _loggerFactory);
         _windowManager = windowManager;
         _windowProcedure = windowProcedure;
+        _windowFunction = windowFunction;
         _windowMap = windowMap;
 
         _onUnhandledExceptionHandler = onUnhandledExceptionHandler;
@@ -228,9 +229,8 @@ internal sealed partial class UIThread : IUIThreadInternal
             _queueEvent.WaitHandle.SafeWaitHandle.DangerousGetHandle(),
             linkedCt.WaitHandle.SafeWaitHandle.DangerousGetHandle()
         ]);
-        var handleCount = (uint)waitHandlesPin.Target.Length;
 
-        Setup();
+        _windowFunction.Setup();
 
         _logger.LogWithLine(LogLevel.Information, "start message loop", Environment.CurrentManagedThreadId);
 
@@ -265,7 +265,7 @@ internal sealed partial class UIThread : IUIThreadInternal
 
     private void RunMessageLoopMain(
         PinnedBuffer<nint[]> waitHandlesPin,
-        CancellationToken ct    
+        CancellationToken ct
     )
     {
         using var switchContext = new DispatcherQueueSynchronizationContextScope(_dispatcherQueueSynchronizationContext, _logger);
@@ -317,14 +317,10 @@ internal sealed partial class UIThread : IUIThreadInternal
             }
 
             {
-                _logger.LogWithLine(LogLevel.Trace, "MsgWaitForMultipleObjectsEx", Environment.CurrentManagedThreadId);
                 var res =
-                    User32.MsgWaitForMultipleObjectsEx(
+                    _windowFunction.MsgWaitForMultipleObjectsEx(
                         handleCount,
-                        waitHandlesPin.AddrOfPinnedObject,
-                        1000,
-                        0x04FF, //QS_ALLINPUT
-                        0x0004 //MWMO_INPUTAVAILABLE
+                        waitHandlesPin
                     );
                 if (res == 258) // WAIT_TIMEOUT
                 {
@@ -364,56 +360,5 @@ internal sealed partial class UIThread : IUIThreadInternal
         }
     }
 
-    private void Setup()
-    {
-        WindowDebug.CheckIntegrityLevel(_loggerFactory);
-        WindowDebug.CheckDesktop(_loggerFactory);
-        WindowDebug.CheckGetProcessInformation(_loggerFactory);
-
-        {
-            var result = User32.IsGUIThread(true);
-            if (!result)
-            {
-                var errorCode = Marshal.GetLastPInvokeError();
-                var error = new Win32Exception(errorCode);
-                throw error;
-            }
-        }
-
-        { //メッセージキューが無ければ作られるハズ
-            var result =
-                User32.GetQueueStatus(
-                    0x04FF //QS_ALLINPUT
-                );
-            var errorCode = Marshal.GetLastPInvokeError();
-            if (errorCode == 0)
-            {
-                if (_logger.IsEnabled(LogLevel.Information))
-                {
-                    _logger.LogWithError(LogLevel.Information, $"GetQueueStatus ok {result}", errorCode, Environment.CurrentManagedThreadId);
-                }
-            }
-            else
-            {
-                if (_logger.IsEnabled(LogLevel.Information))
-                {
-                    _logger.LogWithError(LogLevel.Information, $"GetQueueStatus error {result}", Marshal.GetPInvokeErrorMessage(errorCode), Environment.CurrentManagedThreadId);
-                }
-            }
-        }
-
-        {
-            var si = new Kernel32.STARTUPINFOW()
-            {
-                cb = Marshal.SizeOf<Kernel32.STARTUPINFOW>()
-            };
-            Kernel32.GetStartupInfoW(ref si);
-            var errorCode = Marshal.GetLastPInvokeError();
-            if (_logger.IsEnabled(LogLevel.Information))
-            {
-                _logger.LogWithError(LogLevel.Information, $"GetStartupInfoW [dwFlags:{si.dwFlags}][wShowWindow:{si.wShowWindow}]", errorCode, Environment.CurrentManagedThreadId);
-            }
-        }
-    }
 
 }

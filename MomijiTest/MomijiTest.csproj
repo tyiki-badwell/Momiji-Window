@@ -12,6 +12,8 @@
 
     <OutputType>Exe</OutputType>
     <EnableMSTestRunner>true</EnableMSTestRunner>
+
+    <PublishAot>true</PublishAot>
   </PropertyGroup>
 
   <ItemGroup>

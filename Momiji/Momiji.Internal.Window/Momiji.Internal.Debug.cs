@@ -17,11 +17,9 @@ public class WindowDebug
 {
     [Conditional("DEBUG")]
     public static void CheckIntegrityLevel(
-        ILoggerFactory loggerFactory
+        ILogger logger
     )
     {
-        var logger = loggerFactory.CreateLogger<WindowDebug>();
-
         if (!Advapi32.OpenProcessToken(
                 Process.GetCurrentProcess().Handle,
                 Advapi32.DesiredAccess.TOKEN_QUERY,
@@ -122,7 +120,7 @@ public class WindowDebug
         }
     }
     private static void PrintAccountFromSid(
-    ILogger logger,
+        ILogger logger,
         nint sid
     )
     {
@@ -165,11 +163,9 @@ public class WindowDebug
 
     [Conditional("DEBUG")]
     public static void CheckDesktop(
-        ILoggerFactory loggerFactory
+        ILogger logger
     )
     {
-        var logger = loggerFactory.CreateLogger<WindowDebug>();
-
         {
             using var desktop = User32.GetThreadDesktop(Kernel32.GetCurrentThreadId());
             if (logger.IsEnabled(LogLevel.Information))
@@ -333,11 +329,9 @@ public class WindowDebug
 
     [Conditional("DEBUG")]
     public static void CheckGetProcessInformation(
-        ILoggerFactory loggerFactory
+        ILogger logger
     )
     {
-        var logger = loggerFactory.CreateLogger<WindowDebug>();
-
         {
             using var buf = new PinnedBuffer<Kernel32.MEMORY_PRIORITY_INFORMATION>(new());
             var result =

@@ -2,6 +2,8 @@
 using Momiji.Internal.Window;
 using Kernel32 = Momiji.Interop.Kernel32.NativeMethods;
 
+namespace Momiji.Core.Window;
+
 internal interface IUIThreadActivator : IDisposable
 {
     bool IsActivatedThread { get; }
@@ -10,8 +12,7 @@ internal interface IUIThreadActivator : IDisposable
     uint NativeThreadId { get; }
     IDisposable Activate();
 
-    delegate void InactivatedEventHandler();
-    event InactivatedEventHandler OnInactivated;
+    event IUIThread.InactivatedEventHandler OnInactivated;
 }
 
 internal partial class UIThreadActivator(
@@ -40,7 +41,7 @@ internal partial class UIThreadActivator(
 
     public bool IsActivatedThread => (_uiThreadId == Environment.CurrentManagedThreadId);
 
-    public event IUIThreadActivator.InactivatedEventHandler? OnInactivated;
+    public event IUIThread.InactivatedEventHandler? OnInactivated;
 
     public uint NativeThreadId
     {

@@ -8,7 +8,6 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>  
     <PublishReadyToRun>true</PublishReadyToRun>
-    <PublishAot>true</PublishAot>
     <IsAotCompatible>true</IsAotCompatible>
     <!--VerifyReferenceAotCompatibility>true</VerifyReferenceAotCompatibility-->
     <ControlFlowGuard>Guard</ControlFlowGuard>

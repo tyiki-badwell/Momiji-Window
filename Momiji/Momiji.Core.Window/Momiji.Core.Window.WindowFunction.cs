@@ -1,13 +1,17 @@
 ﻿using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
+using Momiji.Core.Buffer;
 using Momiji.Internal.Window;
+using Kernel32 = Momiji.Interop.Kernel32.NativeMethods;
 using User32 = Momiji.Interop.User32.NativeMethods;
 
 namespace Momiji.Core.Window;
 
 internal interface IWindowFunction
 {
+    void Setup();
+
     void PostMessage(
         User32.HWND hwnd,
         uint nMsg,
@@ -59,6 +63,11 @@ internal interface IWindowFunction
         int nIndex,
         nint dwNewLong
     );
+
+    uint MsgWaitForMultipleObjectsEx(
+        uint handleCount,
+        PinnedBuffer<nint[]> waitHandlesPin
+    );
 }
 
 internal sealed partial class WindowFunction : IWindowFunction
@@ -82,6 +91,58 @@ internal sealed partial class WindowFunction : IWindowFunction
         _windowProcedure = windowProcedure;
     }
 
+    public void Setup()
+    {
+        WindowDebug.CheckIntegrityLevel(_logger);
+        WindowDebug.CheckDesktop(_logger);
+        WindowDebug.CheckGetProcessInformation(_logger);
+
+        {
+            var result = User32.IsGUIThread(true);
+            if (!result)
+            {
+                var errorCode = Marshal.GetLastPInvokeError();
+                var error = new Win32Exception(errorCode);
+                throw error;
+            }
+        }
+
+        { //メッセージキューが無ければ作られるハズ
+            var result =
+                User32.GetQueueStatus(
+                    0x04FF //QS_ALLINPUT
+                );
+            var errorCode = Marshal.GetLastPInvokeError();
+            if (errorCode == 0)
+            {
+                if (_logger.IsEnabled(LogLevel.Information))
+                {
+                    _logger.LogWithError(LogLevel.Information, $"GetQueueStatus ok {result}", errorCode, Environment.CurrentManagedThreadId);
+                }
+            }
+            else
+            {
+                if (_logger.IsEnabled(LogLevel.Information))
+                {
+                    _logger.LogWithError(LogLevel.Information, $"GetQueueStatus error {result}", Marshal.GetPInvokeErrorMessage(errorCode), Environment.CurrentManagedThreadId);
+                }
+            }
+        }
+
+        {
+            var si = new Kernel32.STARTUPINFOW()
+            {
+                cb = Marshal.SizeOf<Kernel32.STARTUPINFOW>()
+            };
+            Kernel32.GetStartupInfoW(ref si);
+            var errorCode = Marshal.GetLastPInvokeError();
+            if (_logger.IsEnabled(LogLevel.Information))
+            {
+                _logger.LogWithError(LogLevel.Information, $"GetStartupInfoW [dwFlags:{si.dwFlags}][wShowWindow:{si.wShowWindow}]", errorCode, Environment.CurrentManagedThreadId);
+            }
+        }
+    }
+
     public nint SendMessage(
         User32.HWND hwnd,
         uint nMsg,
@@ -92,6 +153,10 @@ internal sealed partial class WindowFunction : IWindowFunction
         _uiThreadActivator.ThrowIfNoActive();
 
         //TODO SendMessage/SendNotifyMessage/SendMessageCallback/SendMessageTimeout の使い分け？
+
+        //リセットしておく
+        Marshal.SetLastPInvokeError(0);
+
         _logger.LogWithWndProcParam(LogLevel.Trace, "SendMessageW", hwnd, nMsg, wParam, lParam, Environment.CurrentManagedThreadId);
         var result =
             User32.SendMessageW(
@@ -115,7 +180,7 @@ internal sealed partial class WindowFunction : IWindowFunction
             else
             {
                 var error = new Win32Exception(lastError);
-                _logger.LogWithHWndAndError(LogLevel.Error, $"SendMessageW result:[{result}]", hwnd, error.ToString(), Environment.CurrentManagedThreadId);
+                _logger.LogWithHWndAndError(LogLevel.Error, $"SendMessageW result:[{result}] lastError:[{lastError}]", hwnd, error.ToString(), Environment.CurrentManagedThreadId);
                 throw error;
             }
         }
@@ -446,5 +511,23 @@ internal sealed partial class WindowFunction : IWindowFunction
             _logger.LogWithHWndAndError(LogLevel.Information, $"SetWindowLong result:[{result:X}]", hwnd, error.ToString(), Environment.CurrentManagedThreadId);
         }
         return (result, error);
+    }
+
+
+    public uint MsgWaitForMultipleObjectsEx(
+        uint handleCount,
+        PinnedBuffer<nint[]> waitHandlesPin
+    )
+    {
+        _logger.LogWithLine(LogLevel.Trace, "MsgWaitForMultipleObjectsEx", Environment.CurrentManagedThreadId);
+
+        return User32.MsgWaitForMultipleObjectsEx(
+            handleCount,
+            waitHandlesPin.AddrOfPinnedObject,
+            1000,
+            0x04FF, //QS_ALLINPUT
+            0x0004 //MWMO_INPUTAVAILABLE
+        );
+
     }
 }

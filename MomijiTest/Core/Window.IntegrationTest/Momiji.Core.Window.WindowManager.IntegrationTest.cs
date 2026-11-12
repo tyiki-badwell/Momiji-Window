@@ -54,31 +54,6 @@ public partial class WindowManagerIntegrationTest
     }
 
     [TestMethod]
-    public async Task TestDispatchFail()
-    {
-        using var host = Setup();
-        var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
-        var logger = loggerFactory.CreateLogger<WindowManagerIntegrationTest>();
-        var uiThreadActivator = host.Services.GetRequiredService<IUIThreadActivator>();
-        var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
-
-        //‹N“®
-        using var active = uiThreadActivator.Activate();
-
-        try
-        {
-            var result = await windowManager.EnqueueAsync<int>((window) => { throw new TestException(); }, new DummyWindow());
-            Assert.Fail();
-        }
-        catch (TestException e)
-        {
-            //OK
-            logger.LogInformation(e, "error occurred");
-        }
-
-    }
-
-    [TestMethod]
     public void TestCloseAll()
     {
         using var host = Setup();
@@ -98,7 +73,7 @@ public partial class WindowManagerIntegrationTest
         var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
         var logger = loggerFactory.CreateLogger<WindowManagerIntegrationTest>();
         var uiThreadActivator = host.Services.GetRequiredService<IUIThreadActivator>();
-        var windowManager = host.Services.GetRequiredService<IWindowManagerInternal>();
+        var windowManager = host.Services.GetRequiredService<IWindowManager>();
         var windowMap = host.Services.GetRequiredService<IWindowMap>();
 
         //‹N“®

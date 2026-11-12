@@ -324,8 +324,6 @@ public partial class Worker : BackgroundService
         }
     }
 
-    private bool H_OnUnhandledException(Exception exception) => throw new NotImplementedException();
-
     public async override Task StopAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("StopAsync");
