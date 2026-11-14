@@ -6,6 +6,8 @@ namespace Momiji.Core.Window;
 
 internal interface IUIThreadMap
 {
+    bool IsEmpty { get; }
+    int Count { get; }
     ValueTask CancelAllAsync();
 
     void Add(IUIThread uiThread, Task task);
@@ -22,6 +24,9 @@ internal sealed partial class UIThreadMap : IUIThreadMap, IDisposable, IAsyncDis
     private readonly IOnUnhandledExceptionHandler _onUnhandledExceptionHandler;
 
     private readonly ConcurrentDictionary<IUIThread, Task> _uiThreadMap = [];
+
+    public bool IsEmpty => _uiThreadMap.IsEmpty;
+    public int Count => _uiThreadMap.Count;
 
     public UIThreadMap(
         ILogger<UIThreadMap> logger,
@@ -109,23 +114,32 @@ internal sealed partial class UIThreadMap : IUIThreadMap, IDisposable, IAsyncDis
 
     public void Add(IUIThread uiThread, Task task)
     {
+        _logger.LogWithLine(LogLevel.Trace, "add", Environment.CurrentManagedThreadId);
         _uiThreadMap.TryAdd(uiThread, task);
     }
 
     public void Remove(IUIThread uiThread)
     {
+        _logger.LogWithLine(LogLevel.Trace, "remove", Environment.CurrentManagedThreadId);
         _uiThreadMap.TryRemove(uiThread, out var _);
     }
 
     public async ValueTask CancelAllAsync()
     {
+        if (_uiThreadMap.IsEmpty)
+        {
+            _logger.LogWithLine(LogLevel.Trace, "_uiThreadMap.IsEmpty", Environment.CurrentManagedThreadId);
+            return;
+        }
+
         var tasks = _uiThreadMap.Keys.Select(thread => thread.CancelAsync().AsTask()).ToArray();
 
-        _logger.LogWithLine(LogLevel.Trace, "when all", Environment.CurrentManagedThreadId);
+        _logger.LogWithLine(LogLevel.Trace, "when all start", Environment.CurrentManagedThreadId);
         await Task.WhenAll(tasks).ConfigureAwait(false);
+        _logger.LogWithLine(LogLevel.Trace, "when all end", Environment.CurrentManagedThreadId);
 
-        _logger.LogWithLine(LogLevel.Trace, "clear", Environment.CurrentManagedThreadId);
-        _uiThreadMap.Clear();
+        //_logger.LogWithLine(LogLevel.Trace, "clear", Environment.CurrentManagedThreadId);
+        //_uiThreadMap.Clear();
     }
 
 }

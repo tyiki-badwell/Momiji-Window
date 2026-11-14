@@ -12,6 +12,10 @@
 
     <OutputType>Exe</OutputType>
     <EnableMSTestRunner>true</EnableMSTestRunner>
+
+    <PublishAot>true</PublishAot>
+
+    <SignAssembly>True</SignAssembly>
   </PropertyGroup>
 
   <ItemGroup>

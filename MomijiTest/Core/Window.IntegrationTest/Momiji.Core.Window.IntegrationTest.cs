@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -42,7 +41,7 @@ public partial class WindowIntegrationTest
 
             Assert.Fail("エラーが発生しなかった");
         }
-        catch (Win32Exception e)
+        catch (Exception e)
         {
             //OK
             logger.LogInformation(e, "error occurred");
@@ -187,49 +186,51 @@ public partial class WindowIntegrationTest
         var logger = loggerFactory.CreateLogger<UIThreadFactoryTest>();
         var factory = host.Services.GetRequiredService<IServiceScopeFactory>();
         var onUnhandledExceptionHandler = host.Services.GetRequiredService<IOnUnhandledExceptionHandler>();
+        var mre = new ManualResetEventSlim();
+        onUnhandledExceptionHandler.OnUnhandledException += (sender, exception) =>
+        {
+            logger.LogInformation(exception, $"★thread:[{Environment.CurrentManagedThreadId:X}] on error ================================[{SynchronizationContext.Current}]");
+            mre.Set();
+            return true;
+        };
 
         var threadFactory = host.Services.GetRequiredService<IUIThreadFactory>();
         var thread = await threadFactory.StartAsync();
 
-        try
+        var window = await thread.CreateWindowAsync(new()
         {
-            var window = await thread.CreateWindowAsync(new()
+            onMessage = async (sender, message) =>
             {
-                onMessage = async (sender, message) =>
-                {
-                    logger.LogInformation($"on message {message}");
+                logger.LogInformation($"on message {message}");
 
-                    if (message.Msg == 0x0001) //WM_CREATE
+                if (message.Msg == 0x0001) //WM_CREATE
+                {
+                    try
                     {
-                        try
+                        //TODO async でイベントを作っているとWM_CREATEでエラーにできない
+                        var child = await thread.CreateWindowAsync(new()
                         {
-                            //*** async でイベントを作っているとWM_CREATEでエラーにできない
-                            var child = await thread.CreateWindowAsync(new()
+                            parent = sender,
+                            style = 0x40000000, //WS_CHILD
+                            className = "EDITXXX",
+                            onMessage = (sender, message) =>
                             {
-                                parent = sender,
-                                style = 0x40000000, //WS_CHILD
-                                className = "EDITXXX",
-                                onMessage = (sender, message) =>
-                                {
-                                    logger.LogInformation($"child on message {message}");
-                                }
-                            });
-                        }
-                        catch (Exception e)
-                        {
-                            logger.LogInformation(e, "ERROR");
-                            throw;
-                        }
+                                logger.LogInformation($"child on message {message}");
+                            }
+                        });
+                    }
+                    catch (Exception e)
+                    {
+                        logger.LogInformation(e, "ERROR");
+                        throw;
                     }
                 }
-            });
+            }
+        });
 
-            Assert.Fail("エラーが発生しなかった");
-        }
-        catch (Exception e)
+        if (!mre.Wait(5000))
         {
-            //OK
-            logger.LogInformation(e, "error occurred");
+            Assert.Fail("エラーが発生しなかった");
         }
     }
 

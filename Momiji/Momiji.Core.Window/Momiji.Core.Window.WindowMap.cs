@@ -16,9 +16,10 @@ internal interface IWindowMap
     void Add(IWindowInternal window);
     void Remove(IWindowInternal window);
     bool FindWindow(User32.HWND hwnd, [MaybeNullWhen(false)] out IWindowInternal window);
-
-    TResult InvokeWithContext<TResult>(Func<IWindowInternal, TResult> func, IWindowInternal window);
+    ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindowInternal, TResult> item, IWindowInternal window);
     bool TryGetWindow(User32.HWND hwnd, [MaybeNullWhen(false)] out IWindowInternal window);
+    int GenerateChildId(IWindowInternal window);
+    nuint GenerateSubclassId();
 }
 
 internal sealed partial class WindowMap : IWindowMap, IDisposable
@@ -28,23 +29,33 @@ internal sealed partial class WindowMap : IWindowMap, IDisposable
     private readonly ILogger<WindowMap> _logger;
 
     private readonly IUIThreadActivator _uiThreadActivator;
+    private readonly IDispatcherQueue _dispatcherQueue;
 
     public bool IsEmpty => _windowMap.IsEmpty;
 
     private readonly ConcurrentDictionary<User32.HWND, IWindowInternal> _windowMap = [];
     private readonly ConcurrentStack<IWindowInternal> _windowStack = [];
 
+    private readonly ConcurrentDictionary<int, WeakReference<IWindowInternal>> _childIdMap = [];
+    private int childId;
+    private uint subclassId;
+    
     public WindowMap(
         ILogger<WindowMap> logger,
-        IUIThreadActivator uiThreadActivator
+        IUIThreadActivator uiThreadActivator,
+        IDispatcherQueue dispatcherQueue
     )
     {
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(uiThreadActivator);
+        ArgumentNullException.ThrowIfNull(dispatcherQueue);
 
         _logger = logger;
 
         _uiThreadActivator = uiThreadActivator;
         _uiThreadActivator.OnInactivated += OnInactivated;
+
+        _dispatcherQueue = dispatcherQueue;
     }
 
     ~WindowMap()
@@ -69,6 +80,8 @@ internal sealed partial class WindowMap : IWindowMap, IDisposable
         if (disposing)
         {
             _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
+            _logger.LogWithLine(LogLevel.Warning, $"window left {_windowMap.Count}", Environment.CurrentManagedThreadId);
+            PrintWindowMap();
 
             _uiThreadActivator.OnInactivated -= OnInactivated;
         }
@@ -76,6 +89,8 @@ internal sealed partial class WindowMap : IWindowMap, IDisposable
 
     public void CloseAll()
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         //TODO SendMessageに行くのでUIスレッドで呼び出す必要は無いが、統一すべき？
         foreach (var item in _windowMap)
         {
@@ -105,13 +120,12 @@ internal sealed partial class WindowMap : IWindowMap, IDisposable
 
     public void ForceClose()
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         if (_windowMap.IsEmpty)
         {
             return;
         }
-
-        _logger.LogWithLine(LogLevel.Warning, $"window left {_windowMap.Count}", Environment.CurrentManagedThreadId);
-        PrintWindowMap();
 
         foreach (var item in _windowMap)
         {
@@ -121,8 +135,6 @@ internal sealed partial class WindowMap : IWindowMap, IDisposable
 
         //TODO mapが空になるのを待つ？
         _logger.LogWithLine(LogLevel.Warning, $"window left {_windowMap.Count}", Environment.CurrentManagedThreadId);
-
-        _windowMap.Clear();
     }
 
     [Conditional("DEBUG")]
@@ -149,6 +161,8 @@ internal sealed partial class WindowMap : IWindowMap, IDisposable
 
     public void Add(IWindowInternal window)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         if (_windowMap.TryAdd(window.HWND, window))
         {
             _logger.LogWithHWnd(LogLevel.Information, "add window map", window.HWND, Environment.CurrentManagedThreadId);
@@ -162,6 +176,8 @@ internal sealed partial class WindowMap : IWindowMap, IDisposable
 
     public void Remove(IWindowInternal window)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         if (_windowMap.TryRemove(window.HWND, out var window_))
         {
             _logger.LogWithHWnd(LogLevel.Information, "remove window map", window_.HWND, Environment.CurrentManagedThreadId);
@@ -175,6 +191,8 @@ internal sealed partial class WindowMap : IWindowMap, IDisposable
 
     public bool FindWindow(User32.HWND hwnd, [MaybeNullWhen(false)] out IWindowInternal window)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         if (_windowMap.TryGetValue(hwnd, out window))
         {
             if (_logger.IsEnabled(LogLevel.Trace))
@@ -184,6 +202,20 @@ internal sealed partial class WindowMap : IWindowMap, IDisposable
             return true;
         }
         return false;
+    }
+
+    public async ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindowInternal, TResult> item, IWindowInternal window)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        _logger.LogWithLine(LogLevel.Trace, "EnqueueAsync", Environment.CurrentManagedThreadId);
+
+        TResult func()
+        {
+            return InvokeWithContext(item, window);
+        }
+
+        return await _dispatcherQueue.EnqueueAsync(func);
     }
 
     internal readonly ref struct SwitchThreadDpiAwarenessContextPerMonitorAwareV2RAII
@@ -225,7 +257,7 @@ internal sealed partial class WindowMap : IWindowMap, IDisposable
         }
     }
 
-    public TResult InvokeWithContext<TResult>(Func<IWindowInternal, TResult> func, IWindowInternal window)
+    private TResult InvokeWithContext<TResult>(Func<IWindowInternal, TResult> func, IWindowInternal window)
     {
         //TODO スレッドセーフになっているか要確認(再入しても問題ないなら気にしない)
         //TODO 何かのコンテキストに移す
@@ -279,6 +311,8 @@ internal sealed partial class WindowMap : IWindowMap, IDisposable
 
     public bool TryGetWindow(User32.HWND hwnd, [MaybeNullWhen(false)] out IWindowInternal window)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         PrintWindowStack();
         PrintWindowMap();
 
@@ -320,5 +354,21 @@ internal sealed partial class WindowMap : IWindowMap, IDisposable
             _logger.LogWithHWnd(LogLevel.Trace, "stack is empty", hwnd, Environment.CurrentManagedThreadId);
             return false;
         }
+    }
+    public int GenerateChildId(IWindowInternal window)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        var id = Interlocked.Increment(ref childId);
+        _childIdMap.TryAdd(id, new(window));
+        return id;
+    }
+
+    public nuint GenerateSubclassId()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        var id = Interlocked.Increment(ref subclassId);
+        return id;
     }
 }

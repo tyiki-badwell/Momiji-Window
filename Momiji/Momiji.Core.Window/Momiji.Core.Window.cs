@@ -23,7 +23,9 @@ public interface IOnUnhandledExceptionHandler
 
 public interface IUIThreadFactory
 {
-    Task<IUIThread> StartAsync();
+    Task<IUIThread> StartAsync(
+        CancellationToken ct = default
+    );
 }
 
 public interface IUIThread

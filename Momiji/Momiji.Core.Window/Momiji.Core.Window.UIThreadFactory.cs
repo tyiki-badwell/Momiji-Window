@@ -5,63 +5,180 @@ using Momiji.Internal.Window;
 
 namespace Momiji.Core.Window;
 
-internal sealed partial class UIThreadFactory : IUIThreadFactory
+internal sealed partial class UIThreadFactory : IUIThreadFactory, IDisposable, IAsyncDisposable
 {
+    private bool _disposed;
     private readonly ILogger<UIThreadFactory> _logger;
 
     private readonly IUIThreadMap _uiThreadMap;
+    private readonly IOnUnhandledExceptionHandler _onUnhandledExceptionHandler;
 
     private readonly IServiceScopeFactory _serviceScopeFactory;
 
     public UIThreadFactory(
         ILogger<UIThreadFactory> logger,
         IUIThreadMap uiThreadMap,
+        IOnUnhandledExceptionHandler onUnhandledExceptionHandler,
         IServiceScopeFactory serviceScopeFactory
     )
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(uiThreadMap);
+        ArgumentNullException.ThrowIfNull(onUnhandledExceptionHandler);
         ArgumentNullException.ThrowIfNull(serviceScopeFactory);
 
         _logger = logger;
         _uiThreadMap = uiThreadMap;
+        _onUnhandledExceptionHandler = onUnhandledExceptionHandler;
 
         _serviceScopeFactory = serviceScopeFactory;
     }
 
-    public async Task<IUIThread> StartAsync()
+    ~UIThreadFactory()
     {
-        var startTcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
-        var task = Start(startTcs);
-
-        var uiThread = await startTcs.Task.ConfigureAwait(false);
-
-        _uiThreadMap.Add(uiThread, task);
-
-        return uiThread;
+        Dispose(false);
     }
 
-    private async Task Start(
-        TaskCompletionSource<IUIThread> startTcs
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    private void Dispose(bool disposing)
+    {
+        if (Interlocked.CompareExchange(ref _disposed, true, false) == true)
+        {
+            _logger.LogWithLine(LogLevel.Information, "already disposed", Environment.CurrentManagedThreadId);
+            return;
+        }
+
+        if (disposing)
+        {
+            _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
+            var task = DisposeAsyncCore().AsTask();
+
+            //TODO 仮処理
+            try
+            {
+                var retry = 5;
+                while (retry-- > 0)
+                {
+                    if (task.Wait(1000))
+                    {
+                        break;
+                    }
+                }
+
+                if (!task.IsCompleted)
+                {
+                    throw new InvalidOperationException("process task is not completed.");
+                }
+
+                task.GetAwaiter().GetResult();
+            }
+            catch (Exception e)
+            {
+                _logger.LogWithLine(LogLevel.Error, e, "failed.", Environment.CurrentManagedThreadId);
+                if (!_onUnhandledExceptionHandler.DoUnhandledException(e))
+                {
+                    _logger.LogWithLine(LogLevel.Error, e, "onUnhandledException failed.", Environment.CurrentManagedThreadId);
+                }
+            }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await DisposeAsyncCore().ConfigureAwait(false);
+
+        Dispose(false);
+
+        GC.SuppressFinalize(this);
+    }
+
+    private async ValueTask DisposeAsyncCore()
+    {
+        _logger.LogWithLine(LogLevel.Trace, "DisposeAsync start", Environment.CurrentManagedThreadId);
+
+        if (_uiThreadMap.IsEmpty)
+        {
+            _logger.LogWithLine(LogLevel.Trace, "_uiThreadMap.IsEmpty", Environment.CurrentManagedThreadId);
+            return;
+        }
+
+        await _uiThreadMap.CancelAllAsync().ConfigureAwait(false);
+
+        await Task.Run(async () => {
+            while (true)
+            {
+                if (_uiThreadMap.IsEmpty)
+                {
+                    break;
+                }
+
+                await Task.Delay(1000);
+
+                if (_logger.IsEnabled(LogLevel.Trace))
+                {
+                    _logger.LogWithLine(LogLevel.Trace, $"uiThreadMap left {_uiThreadMap.Count}", Environment.CurrentManagedThreadId);
+                }
+            }
+        });
+        _logger.LogWithLine(LogLevel.Trace, "DisposeAsync end", Environment.CurrentManagedThreadId);
+    }
+
+    public async Task<IUIThread> StartAsync(
+        CancellationToken ct = default
+    )
+    {
+        var startTcs = new TaskCompletionSource<IUIThread>(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+        var task = StartAsyncCore(startTcs, ct);
+
+        try
+        {
+            var uiThread = await startTcs.Task.ConfigureAwait(false);
+            _uiThreadMap.Add(uiThread, task);
+            return uiThread;
+        }
+        catch(Exception e)
+        {
+            _logger.LogWithLine(LogLevel.Error, e, "startTcs failed.", Environment.CurrentManagedThreadId);
+            await task.ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    private async Task StartAsyncCore(
+        TaskCompletionSource<IUIThread> startTcs,
+        CancellationToken ct
     )
     {
         Exception? runException = default;
         try
         {
-            await Run(startTcs).ConfigureAwait(ConfigureAwaitOptions.None);
+            await RunAsync(startTcs, ct).ConfigureAwait(ConfigureAwaitOptions.None);
             if (_logger.IsEnabled(LogLevel.Information))
             {
-                _logger.LogWithLine(LogLevel.Information, $"process task end.", Environment.CurrentManagedThreadId);
+                _logger.LogWithLine(LogLevel.Information, "process task end.", Environment.CurrentManagedThreadId);
             }
 
             //NOTE このタスクでcontinue withすると、UIスレッドでQueue登録してスレッド終了し、QueueのCOMアクセスが失敗する
 
-            var uiThread = await startTcs.Task;
-            _uiThreadMap.Remove(uiThread);
         }
         catch (Exception e)
         {
             runException = e;
+        }
+
+        try
+        {
+            var uiThread = await startTcs.Task;
+            _uiThreadMap.Remove(uiThread);
+        }
+        catch (Exception)
+        {
+            //NOP
         }
 
         _logger.LogWithLine(LogLevel.Information, "stopped.", Environment.CurrentManagedThreadId);
@@ -69,12 +186,14 @@ internal sealed partial class UIThreadFactory : IUIThreadFactory
         if (runException != default)
         {
             //_processTaskのエラー状態を伝播する
+            //throw runException;
             ExceptionDispatchInfo.Throw(runException);
         }
     }
 
-    private Task Run(
-        TaskCompletionSource<IUIThread> startTcs
+    private async Task RunAsync(
+        TaskCompletionSource<IUIThread> startTcs,
+        CancellationToken ct
     )
     {
         var tcs = new TaskCompletionSource(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
@@ -88,7 +207,7 @@ internal sealed partial class UIThreadFactory : IUIThreadFactory
                 await using var scope = _serviceScopeFactory.CreateAsyncScope();
                 var uiThread = scope.ServiceProvider.GetRequiredService<IUIThreadInternal>();
 
-                uiThread.RunMessageLoop(startTcs);
+                uiThread.RunMessageLoop(startTcs, ct);
 
                 _logger.LogWithLine(LogLevel.Information, "message loop normal end.", Environment.CurrentManagedThreadId);
             }
@@ -96,8 +215,8 @@ internal sealed partial class UIThreadFactory : IUIThreadFactory
             {
                 _logger.LogWithLine(LogLevel.Error, e, "message loop abnormal end.", Environment.CurrentManagedThreadId);
 
-                startTcs.TrySetException(e);
                 tcs.SetException(e);
+                startTcs.TrySetException(e);
             }
 
             tcs.TrySetResult();
@@ -117,6 +236,6 @@ internal sealed partial class UIThreadFactory : IUIThreadFactory
         }
         thread.Start();
 
-        return tcs.Task;
+        await tcs.Task;
     }
 }
