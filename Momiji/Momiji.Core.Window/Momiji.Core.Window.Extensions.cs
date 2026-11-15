@@ -10,12 +10,7 @@ public static class IUIThreadExtensions
         IWindowManager.CreateWindowParameter parameter
     )
     {
-        return await await uiThread.EnqueueAsync(
-            (manager) => 
-            manager.CreateWindowAsync(
-                parameter
-            )
-        );
+        return await uiThread.WindowManager.CreateWindowAsync(parameter);
     }
 }
 

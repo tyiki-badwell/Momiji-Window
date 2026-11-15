@@ -27,8 +27,15 @@ public static class TestTool
         var tcs = new TaskCompletionSource(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
         var thread = new Thread(async () =>
         {
-            action();
-            tcs.TrySetResult();
+            try
+            {
+                action();
+                tcs.TrySetResult();
+            }
+            catch (Exception e)
+            {
+                tcs.TrySetException(e);
+            }
         })
         {
             IsBackground = false

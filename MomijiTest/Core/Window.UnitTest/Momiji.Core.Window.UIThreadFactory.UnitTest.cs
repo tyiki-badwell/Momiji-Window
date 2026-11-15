@@ -17,12 +17,15 @@ public partial class UIThreadFactoryTest
         public UIThreadDummy()
         {
         }
+
+        public IWindowManager WindowManager => throw new NotImplementedException();
+
         public event IUIThread.InactivatedEventHandler? OnInactivated;
 
         public ValueTask CancelAsync() => ValueTask.CompletedTask;
         public void Dispose() => throw new NotImplementedException();
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-        public ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindowManager, TResult> item) => throw new NotImplementedException();
+        public ValueTask<TResult> EnqueueAsync<TResult>(Func<TResult> item) => throw new NotImplementedException();
         public void RunMessageLoop(TaskCompletionSource<IUIThread> startTcs, CancellationToken ct = default) {
             startTcs.TrySetResult(this);
         }
@@ -33,12 +36,16 @@ public partial class UIThreadFactoryTest
         public UIThreadDummyRunMessageLoopError()
         {
         }
+
+        public IWindowManager WindowManager => throw new NotImplementedException();
+
         public event IUIThread.InactivatedEventHandler? OnInactivated;
 
         public ValueTask CancelAsync() => ValueTask.CompletedTask;
         public void Dispose() => throw new NotImplementedException();
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-        public ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindowManager, TResult> item) => throw new NotImplementedException();
+        public ValueTask<TResult> EnqueueAsync<TResult>(Func<TResult> item) => throw new NotImplementedException();
+
         public void RunMessageLoop(TaskCompletionSource<IUIThread> startTcs, CancellationToken ct = default)
         {
             throw new Exception("ERROR");

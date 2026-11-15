@@ -98,7 +98,7 @@ public partial class Worker : BackgroundService
         childStyle |= 0x40000000; //WS_CHILD
         childStyle |= 0x10000000; //WS_VISIBLE
 
-        var dispatcherQueueController = await a.EnqueueAsync((manager) => {
+        var dispatcherQueueController = await a.EnqueueAsync(() => {
             _logger.LogInformation("thread A: DispatcherQueueController.CreateOnCurrentThread");
             return Microsoft.UI.Dispatching.DispatcherQueueController.CreateOnCurrentThread();
         });

@@ -497,7 +497,7 @@ public partial class WindowIntegrationTest
 
                     case CallType.InDispatch:
                         logger.LogInformation($"Å•thread:[{Environment.CurrentManagedThreadId:X}] InDispatch start ===============================");
-                        result = await await thread.EnqueueAsync((manager) => method(param));
+                        result = await await thread.EnqueueAsync(() => method(param));
                         logger.LogInformation($"Å•thread:[{Environment.CurrentManagedThreadId:X}] InDispatch end ===============================");
                         break;
 

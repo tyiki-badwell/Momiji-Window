@@ -30,8 +30,9 @@ public interface IUIThreadFactory
 
 public interface IUIThread
 {
+    IWindowManager WindowManager { get; }
     ValueTask CancelAsync();
-    ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindowManager, TResult> item);
+    ValueTask<TResult> EnqueueAsync<TResult>(Func<TResult> item);
 
     delegate void InactivatedEventHandler();
     event InactivatedEventHandler OnInactivated;

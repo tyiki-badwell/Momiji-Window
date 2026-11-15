@@ -74,8 +74,6 @@ internal sealed partial class WindowManager : IWindowManager, IDisposable
         }
     }
 
-
-
     public async ValueTask<IWindow> CreateWindowAsync(
         IWindowManager.CreateWindowParameter parameter
     )
