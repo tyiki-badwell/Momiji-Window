@@ -9,20 +9,28 @@ internal interface IDispatcherQueue : IDisposable
 {
     void Enqueue(SendOrPostCallback callback, object? param);
     void Enqueue(Action action);
-    delegate void EnqueueHandler();
-    event EnqueueHandler OnEnqueue;
 
     bool TryDequeue([MaybeNullWhen(false)] out object item);
 
     ValueTask<TResult> EnqueueAsync<TResult>(Func<TResult> func);
     int Count { get; }
+    WaitHandle WaitHandle { get; }
+
+    void Reset();
 }
 
 internal sealed partial class DispatcherQueue : IDispatcherQueue
 {
     private bool _disposed;
     private readonly ILogger<DispatcherQueue> _logger;
-    public event IDispatcherQueue.EnqueueHandler? OnEnqueue;
+
+    private readonly ManualResetEventSlim _queueEvent = new();
+    public WaitHandle WaitHandle => _queueEvent.WaitHandle;
+
+    public void Reset()
+    {
+        _queueEvent.Reset();
+    }
     public int Count => _queue.Count;
 
     //TODO RTWQにする
@@ -73,6 +81,8 @@ internal sealed partial class DispatcherQueue : IDispatcherQueue
             {
                 _logger.LogWithLine(LogLevel.Warning, $"queue left count {_queue.Count}", Environment.CurrentManagedThreadId);
             }
+
+            _queueEvent.Dispose();
         }
     }
 
@@ -139,7 +149,7 @@ internal sealed partial class DispatcherQueue : IDispatcherQueue
 
         _logger.LogWithLine(LogLevel.Trace, "Enqueue Action", Environment.CurrentManagedThreadId);
         _queue.Enqueue(action);
-        OnEnqueue?.Invoke();
+        _queueEvent.Set();
     }
 
     public void Enqueue(SendOrPostCallback callback, object? param)
@@ -155,7 +165,7 @@ internal sealed partial class DispatcherQueue : IDispatcherQueue
 
         _logger.LogWithLine(LogLevel.Trace, "Enqueue SendOrPostCallback", Environment.CurrentManagedThreadId);
         _queue.Enqueue((callback, param));
-        OnEnqueue?.Invoke();
+        _queueEvent.Set();
     }
 
     public bool TryDequeue([MaybeNullWhen(false)] out object item)

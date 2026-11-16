@@ -90,7 +90,18 @@ internal sealed partial class UIThreadFactory : IUIThreadFactory, IDisposable, I
 
     public async ValueTask DisposeAsync()
     {
-        await DisposeAsyncCore().ConfigureAwait(false);
+        try
+        {
+            await DisposeAsyncCore().ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+            _logger.LogWithLine(LogLevel.Error, e, "failed.", Environment.CurrentManagedThreadId);
+            if (!_onUnhandledExceptionHandler.DoUnhandledException(e))
+            {
+                _logger.LogWithLine(LogLevel.Error, e, "onUnhandledException failed.", Environment.CurrentManagedThreadId);
+            }
+        }
 
         Dispose(false);
 
@@ -186,7 +197,6 @@ internal sealed partial class UIThreadFactory : IUIThreadFactory, IDisposable, I
         if (runException != default)
         {
             //_processTaskのエラー状態を伝播する
-            //throw runException;
             ExceptionDispatchInfo.Throw(runException);
         }
     }

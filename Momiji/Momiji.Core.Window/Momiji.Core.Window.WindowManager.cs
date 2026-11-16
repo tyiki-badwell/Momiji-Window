@@ -1,6 +1,5 @@
 ﻿using System.ComponentModel;
 using System.Runtime.InteropServices;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Momiji.Internal.Window;
 using Kernel32 = Momiji.Interop.Kernel32.NativeMethods;
@@ -15,31 +14,30 @@ internal sealed partial class WindowManager : IWindowManager, IDisposable
     private readonly ILogger<WindowManager> _logger;
     private readonly IWindowProcedure _windowProcedure;
     private readonly IDispatcherQueueSynchronizationContext _dispatcherQueueSynchronizationContext;
-    private readonly IServiceProvider _serviceProvider; //TODO ActivatorUtilities.CreateInstance のほうがよいか？
     private readonly IWindowMap _windowMap;
+    private readonly IWindowFactory _windowFactory;
 
 
     public WindowManager(
         ILogger<WindowManager> logger,
-        IServiceProvider serviceProvider,
         IWindowMap windowMap,
         IWindowProcedure windowProcedure,
+        IWindowFactory windowFactory,
         IDispatcherQueueSynchronizationContext dispatcherQueueSynchronizationContext
     )
     {
         ArgumentNullException.ThrowIfNull(logger);
-        ArgumentNullException.ThrowIfNull(serviceProvider);
         ArgumentNullException.ThrowIfNull(windowMap);
         ArgumentNullException.ThrowIfNull(windowProcedure);
+        ArgumentNullException.ThrowIfNull(windowFactory);
         ArgumentNullException.ThrowIfNull(dispatcherQueueSynchronizationContext);
 
         _logger = logger;
 
-        _serviceProvider = serviceProvider;
-
         _dispatcherQueueSynchronizationContext = dispatcherQueueSynchronizationContext;
 
         _windowMap = windowMap;
+        _windowFactory = windowFactory;
 
         _windowProcedure = windowProcedure;
         _windowProcedure.OnWindowMessage += OnWindowMessage;
@@ -80,7 +78,7 @@ internal sealed partial class WindowManager : IWindowManager, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        var window = _serviceProvider.GetRequiredKeyedService<IWindowInternal>(NativeWindow.Type);
+        var window = _windowFactory.CreateNativeWindow();
         var parameter_ = new NativeWindow.Parameter()
         {
             parameter = parameter
@@ -256,7 +254,7 @@ internal sealed partial class WindowManager : IWindowManager, IDisposable
                     }
                     else
                     {
-                        var window = _serviceProvider.GetRequiredKeyedService<IWindowInternal>(SubClassNativeWindow2.Type);
+                        var window = _windowFactory.CreateNativeSubclassWindow();
                         var parameter_ = new SubClassNativeWindow2.Parameter()
                         {
                             childHWnd = childHWnd

@@ -99,13 +99,10 @@ public static class IHostBuilderExtensions
             services.AddScoped<IWindowManager, WindowManager>();
             services.AddScoped<IWindowProcedure, WindowProcedure>();
             services.AddScoped<IWindowFunction, WindowFunction>();
+            services.AddScoped<IWindowFactory, WindowFactory>();
             services.AddScoped<IWindowClassManager, WindowClassManager>();
 
             services.AddTransient<IWindowClass, WindowClass>();
-            services.AddKeyedTransient<IWindowInternal, NativeWindow>(NativeWindow.Type);
-            services.AddKeyedTransient<IWindowInternal, SubClassNativeWindow>(SubClassNativeWindow.Type);
-            services.AddKeyedTransient<IWindowInternal, SubClassNativeWindow2>(SubClassNativeWindow2.Type);
-
         });
     }
 

@@ -148,12 +148,6 @@ public partial class DispatcherQueueUnitTest
         );
 
         using var cdeTask = new CountdownEvent(2);
-        using var cdeEnqueue = new CountdownEvent(2);
-
-        queue.OnEnqueue += () =>
-        {
-            cdeEnqueue.Signal();
-        };
 
         queue.Enqueue(() => { cdeTask.Signal(); });
         Assert.AreEqual(1, queue.Count);
@@ -161,7 +155,7 @@ public partial class DispatcherQueueUnitTest
         queue.Enqueue((p) => { cdeTask.Signal(); }, 1);
         Assert.AreEqual(2, queue.Count);
 
-        if (!cdeEnqueue.Wait(500))
+        if (!queue.WaitHandle.WaitOne(500))
         {
             Assert.Fail();
         }
@@ -199,12 +193,6 @@ public partial class DispatcherQueueUnitTest
             uiThreadActivator
         );
 
-        using var mre = new ManualResetEventSlim();
-        queue.OnEnqueue += () =>
-        {
-            mre.Set();
-        };
-
         {
             var task = queue.EnqueueAsync(() => { return 1; });
             var result = await task.ConfigureAwait(false);
@@ -234,11 +222,11 @@ public partial class DispatcherQueueUnitTest
                 return queue.EnqueueAsync(() => { return 2; }).AsTask();
             });
 
-            if (!mre.Wait(500))
+            if (!queue.WaitHandle.WaitOne(500))
             {
                 Assert.Fail();
             }
-            mre.Reset();
+            queue.Reset();
 
             if (queue.TryDequeue(out var item))
             {
@@ -267,11 +255,11 @@ public partial class DispatcherQueueUnitTest
 #pragma warning restore CS0162 // 到達できないコードが検出されました
             });
 
-            if (!mre.Wait(500))
+            if (!queue.WaitHandle.WaitOne(500))
             {
                 Assert.Fail();
             }
-            mre.Reset();
+            queue.Reset();
 
             if (queue.TryDequeue(out var item))
             {

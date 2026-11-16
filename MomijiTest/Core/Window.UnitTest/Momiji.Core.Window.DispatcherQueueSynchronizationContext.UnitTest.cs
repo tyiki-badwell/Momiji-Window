@@ -17,7 +17,7 @@ public partial class DispatcherQueueSynchronizationContextUnitTest
     {
         public int Count => throw new NotImplementedException();
 
-        public event IDispatcherQueue.EnqueueHandler? OnEnqueue;
+        public WaitHandle WaitHandle => throw new NotImplementedException();
 
         public void Dispose()
         {
@@ -27,6 +27,7 @@ public partial class DispatcherQueueSynchronizationContextUnitTest
         }
         public void Enqueue(Action action) => throw new NotImplementedException();
         public ValueTask<TResult> EnqueueAsync<TResult>(Func<TResult> func) => throw new NotImplementedException();
+        public void Reset() => throw new NotImplementedException();
         public bool TryDequeue([MaybeNullWhen(false)] out object item) => throw new NotImplementedException();
     }
 

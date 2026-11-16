@@ -830,7 +830,7 @@ public partial class WindowIntegrationTest
 
         var result = window.SendMessage(0, 1, 2);
 
-        if (!cde.Wait(5000))
+        if (!cde.Wait(1000))
         {
             Assert.Fail($"{errorMessage} ‚ª”­¶‚µ‚È‚©‚Á‚½");
         }

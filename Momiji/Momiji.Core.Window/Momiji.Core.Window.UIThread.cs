@@ -23,8 +23,6 @@ internal sealed partial class UIThread : IUIThreadInternal
 
     private readonly TaskCompletionSource _tcs = new(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly CancellationTokenSource _cts = new();
-    private readonly ManualResetEventSlim _queueEvent = new();
-    public WaitHandle WaitHandle => _queueEvent.WaitHandle;
 
 
     private bool _run;
@@ -71,7 +69,6 @@ internal sealed partial class UIThread : IUIThreadInternal
         _uiThreadActivator.OnInactivated += OnInactivatedBridge;
 
         _dispatcherQueue = dispatcherQueue;
-        _dispatcherQueue.OnEnqueue += OnEnqueue;
         _dispatcherQueueSynchronizationContext = dispatcherQueueSynchronizationContext;
 
         _dispatcherQueueTaskExecutor = dispatcherQueueTaskExecutor;
@@ -157,15 +154,15 @@ internal sealed partial class UIThread : IUIThreadInternal
         }
         catch (Exception e)
         {
-            //TODO エラーになるケースがあるか？
             _logger.LogWithLine(LogLevel.Error, e, "message loop error", Environment.CurrentManagedThreadId);
+            if (!_onUnhandledExceptionHandler.DoUnhandledException(e))
+            {
+                _logger.LogWithLine(LogLevel.Error, e, "onUnhandledException failed.", Environment.CurrentManagedThreadId);
+            }
         }
 
         _uiThreadActivator.OnInactivated -= OnInactivatedBridge;
         _cts.Dispose();
-
-        _dispatcherQueue.OnEnqueue -= OnEnqueue;
-        _queueEvent.Dispose();
 
         _logger.LogWithLine(LogLevel.Trace, "DisposeAsync end", Environment.CurrentManagedThreadId);
     }
@@ -200,13 +197,6 @@ internal sealed partial class UIThread : IUIThreadInternal
         _logger.LogWithLine(LogLevel.Trace, "OnInactivated", Environment.CurrentManagedThreadId);
         OnInactivated?.Invoke();
     }
-
-    private void OnEnqueue()
-    {
-        _logger.LogWithLine(LogLevel.Trace, "OnEnqueue", Environment.CurrentManagedThreadId);
-        _queueEvent.Set();
-    }
-
     public async ValueTask<TResult> EnqueueAsync<TResult>(Func<TResult> func)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -241,7 +231,6 @@ internal sealed partial class UIThread : IUIThreadInternal
         }
         catch (Exception e)
         {
-            //TODO エラーになるケースがあるか？
             _logger.LogWithLine(LogLevel.Error, e, "message loop error", Environment.CurrentManagedThreadId);
             _tcs.SetException(e);
         }
@@ -258,7 +247,7 @@ internal sealed partial class UIThread : IUIThreadInternal
     )
     {
         using var waitHandlesPin = new PinnedBuffer<nint[]>([
-            _queueEvent.WaitHandle.SafeWaitHandle.DangerousGetHandle(),
+            _dispatcherQueue.WaitHandle.SafeWaitHandle.DangerousGetHandle(),
             ct.WaitHandle.SafeWaitHandle.DangerousGetHandle()
         ]);
 
@@ -333,7 +322,7 @@ internal sealed partial class UIThread : IUIThreadInternal
                     //タスクキューのディスパッチ
                     //TODO RTWQなどに置き換えできる？
                     _logger.LogWithLine(LogLevel.Trace, "MsgWaitForMultipleObjectsEx comes queue event.", Environment.CurrentManagedThreadId);
-                    _queueEvent.Reset();
+                    _dispatcherQueue.Reset();
                     _dispatcherQueueTaskExecutor.DispatchQueue();
                     continue;
                 }

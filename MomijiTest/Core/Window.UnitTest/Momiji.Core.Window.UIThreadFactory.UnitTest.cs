@@ -74,10 +74,9 @@ public partial class UIThreadFactoryTest
     public async Task TestConstructor()
     {
         using var host = Setup();
-        var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
 
         using var threadFactory = new UIThreadFactory(
-            loggerFactory.CreateLogger<UIThreadFactory>(),
+            host.Services.GetRequiredService<ILogger<UIThreadFactory>>(),
             host.Services.GetRequiredService<IUIThreadMap>(),
             host.Services.GetRequiredService<IOnUnhandledExceptionHandler>(),
             host.Services.GetRequiredService<IServiceScopeFactory>()
@@ -85,14 +84,64 @@ public partial class UIThreadFactoryTest
     }
 
     [TestMethod]
+    public async Task TestDisposeAsync()
+    {
+        using var host = Setup();
+
+        await using var threadFactory = new UIThreadFactory(
+            host.Services.GetRequiredService<ILogger<UIThreadFactory>>(),
+            host.Services.GetRequiredService<IUIThreadMap>(),
+            host.Services.GetRequiredService<IOnUnhandledExceptionHandler>(),
+            host.Services.GetRequiredService<IServiceScopeFactory>()
+        );
+    }
+
+    [TestMethod]
+    public async Task TestFinalizer()
+    {
+        {
+            using var host = Setup();
+
+            void Run()
+            {
+                var _ = new UIThreadFactory(
+                    host.Services.GetRequiredService<ILogger<UIThreadFactory>>(),
+                    host.Services.GetRequiredService<IUIThreadMap>(),
+                    host.Services.GetRequiredService<IOnUnhandledExceptionHandler>(),
+                    host.Services.GetRequiredService<IServiceScopeFactory>()
+                );
+            }
+
+            Run();
+        }
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+    }
+
+    [TestMethod]
+    public async Task TestDoubleDestruct()
+    {
+        using var host = Setup();
+
+        var threadFactory = new UIThreadFactory(
+            host.Services.GetRequiredService<ILogger<UIThreadFactory>>(),
+            host.Services.GetRequiredService<IUIThreadMap>(),
+            host.Services.GetRequiredService<IOnUnhandledExceptionHandler>(),
+            host.Services.GetRequiredService<IServiceScopeFactory>()
+        );
+        threadFactory.Dispose();
+        threadFactory.Dispose();
+    }
+
+    [TestMethod]
     public async Task TestStartAsync()
     {
         using var host = Setup();
-        var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
-        var logger = loggerFactory.CreateLogger<UIThreadFactoryTest>();
 
         using var threadFactory = new UIThreadFactory(
-            loggerFactory.CreateLogger<UIThreadFactory>(),
+            host.Services.GetRequiredService<ILogger<UIThreadFactory>>(),
             host.Services.GetRequiredService<IUIThreadMap>(),
             host.Services.GetRequiredService<IOnUnhandledExceptionHandler>(),
             host.Services.GetRequiredService<IServiceScopeFactory>()
@@ -123,11 +172,9 @@ public partial class UIThreadFactoryTest
     public async Task TestStartAsyncError()
     {
         using var host = SetupForError();
-        var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
-        var logger = loggerFactory.CreateLogger<UIThreadFactoryTest>();
 
         using var threadFactory = new UIThreadFactory(
-            loggerFactory.CreateLogger<UIThreadFactory>(),
+            host.Services.GetRequiredService<ILogger<UIThreadFactory>>(),
             host.Services.GetRequiredService<IUIThreadMap>(),
             host.Services.GetRequiredService<IOnUnhandledExceptionHandler>(),
             host.Services.GetRequiredService<IServiceScopeFactory>()

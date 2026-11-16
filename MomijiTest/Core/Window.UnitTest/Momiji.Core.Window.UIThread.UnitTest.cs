@@ -162,6 +162,7 @@ public partial class UIThreadUnitTest
             services.AddSingleton<IWindowMap, WindowMapDummy>();
             services.AddSingleton<IWindowProcedure, WindowProcedure>();
             services.AddSingleton<IWindowFunction, WindowFunctionDummy0>();
+            services.AddSingleton<IWindowFactory, WindowFactory>();
             services.AddSingleton<IWindowClassManager, WindowClassManager>();
             services.AddSingleton<IDispatcherQueue, DispatcherQueue>();
             services.AddSingleton<IDispatcherQueueTaskExecutor, DispatcherQueueTaskExecutor>();
@@ -185,6 +186,7 @@ public partial class UIThreadUnitTest
             services.AddSingleton<IWindowMap, WindowMapDummy>();
             services.AddSingleton<IWindowProcedure, WindowProcedure>();
             services.AddSingleton<IWindowFunction, WindowFunctionDummy1>();
+            services.AddSingleton<IWindowFactory, WindowFactory>();
             services.AddSingleton<IWindowClassManager, WindowClassManager>();
             services.AddSingleton<IDispatcherQueue, DispatcherQueue>();
             services.AddSingleton<IDispatcherQueueTaskExecutor, DispatcherQueueTaskExecutor>();
@@ -208,6 +210,7 @@ public partial class UIThreadUnitTest
             services.AddSingleton<IWindowMap, WindowMapDummy>();
             services.AddSingleton<IWindowProcedure, WindowProcedure>();
             services.AddSingleton<IWindowFunction, WindowFunctionDummy2>();
+            services.AddSingleton<IWindowFactory, WindowFactory>();
             services.AddSingleton<IWindowClassManager, WindowClassManager>();
             services.AddSingleton<IDispatcherQueue, DispatcherQueue>();
             services.AddSingleton<IDispatcherQueueTaskExecutor, DispatcherQueueTaskExecutor>();
@@ -231,6 +234,7 @@ public partial class UIThreadUnitTest
             services.AddSingleton<IWindowMap, WindowMapDummy>();
             services.AddSingleton<IWindowProcedure, WindowProcedure>();
             services.AddSingleton<IWindowFunction, WindowFunctionDummy3>();
+            services.AddSingleton<IWindowFactory, WindowFactory>();
             services.AddSingleton<IWindowClassManager, WindowClassManager>();
             services.AddSingleton<IDispatcherQueue, DispatcherQueue>();
             services.AddSingleton<IDispatcherQueueTaskExecutor, DispatcherQueueTaskExecutor>();
@@ -254,6 +258,7 @@ public partial class UIThreadUnitTest
             services.AddSingleton<IWindowMap, WindowMapDummy>();
             services.AddSingleton<IWindowProcedure, WindowProcedure>();
             services.AddSingleton<IWindowFunction, WindowFunctionDummy258>();
+            services.AddSingleton<IWindowFactory, WindowFactory>();
             services.AddSingleton<IWindowClassManager, WindowClassManager>();
             services.AddSingleton<IDispatcherQueue, DispatcherQueue>();
             services.AddSingleton<IDispatcherQueueTaskExecutor, DispatcherQueueTaskExecutor>();
@@ -277,6 +282,7 @@ public partial class UIThreadUnitTest
             services.AddSingleton<IWindowMap, WindowMapDummyNoEmpty>();
             services.AddSingleton<IWindowProcedure, WindowProcedure>();
             services.AddSingleton<IWindowFunction, WindowFunctionDummy0>();
+            services.AddSingleton<IWindowFactory, WindowFactory>();
             services.AddSingleton<IWindowClassManager, WindowClassManager>();
             services.AddSingleton<IDispatcherQueue, DispatcherQueue>();
             services.AddSingleton<IDispatcherQueueTaskExecutor, DispatcherQueueTaskExecutor>();
@@ -314,7 +320,6 @@ public partial class UIThreadUnitTest
             onUnhandledExceptionHandler
         );
 
-        thread.WaitHandle.ToString();
         thread.WindowManager.ToString();
     }
 
