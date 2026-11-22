@@ -15,6 +15,14 @@ public partial class UIThreadUnitTest
     {
     }
 
+    [TestCleanup]
+    public void TestCleanup()
+    {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+    }
+
     public class WindowMapDummy : IWindowMap
     {
         public bool IsEmpty => true;

@@ -1,7 +1,6 @@
 ﻿using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
-using Momiji.Core.Buffer;
 using Momiji.Internal.Window;
 using Comctl32 = Momiji.Interop.Comctl32.NativeMethods;
 using User32 = Momiji.Interop.User32.NativeMethods;
@@ -31,11 +30,13 @@ internal sealed partial class WindowProcedure : IWindowProcedure
 
     private readonly IUIThreadActivator _uiThreadActivator;
 
-    private readonly PinnedDelegate<User32.WNDPROC> _wndProc;
-    public nint FunctionPointer => _wndProc.FunctionPointer;
+    private readonly User32.WNDPROC _wndProc;
+    private readonly nint _functionPointer;
+    public nint FunctionPointer => _functionPointer;
 
-    private readonly PinnedDelegate<Comctl32.SUBCLASSPROC> _subWndProc;
-    public nint SubFunctionPointer => _subWndProc.FunctionPointer;
+    private readonly Comctl32.SUBCLASSPROC _subWndProc;
+    private readonly nint _subFunctionPointer;
+    public nint SubFunctionPointer => _subFunctionPointer;
 
     public event IWindowProcedure.WindowMessageEventHandler? OnWindowMessage;
 
@@ -54,10 +55,11 @@ internal sealed partial class WindowProcedure : IWindowProcedure
 
         _logger = logger;
         _uiThreadActivator = uiThreadActivator;
-        _uiThreadActivator.OnInactivated += OnInactivated;
-        
+
         _wndProc = new(WndProc);
+        _functionPointer = Marshal.GetFunctionPointerForDelegate(_wndProc);
         _subWndProc = new(SubWndProc);
+        _subFunctionPointer = Marshal.GetFunctionPointerForDelegate(_subWndProc);
     }
 
     ~WindowProcedure()
@@ -82,16 +84,7 @@ internal sealed partial class WindowProcedure : IWindowProcedure
         if (disposing)
         {
             _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
-            _uiThreadActivator.OnInactivated -= OnInactivated;
-            _wndProc.Dispose();
-            _subWndProc.Dispose();
         }
-    }
-
-    private void OnInactivated()
-    {
-        _logger.LogWithLine(LogLevel.Trace, "OnInactivated", Environment.CurrentManagedThreadId);
-        //TODO メッセージキューを吐き出しきる
     }
 
     public void DispatchMessage()

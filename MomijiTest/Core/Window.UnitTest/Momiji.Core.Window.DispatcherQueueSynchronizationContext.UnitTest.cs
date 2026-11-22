@@ -13,6 +13,14 @@ public partial class DispatcherQueueSynchronizationContextUnitTest
     {
     }
 
+    [TestCleanup]
+    public void TestCleanup()
+    {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+    }
+
     private class DispatcherQueueDummy : IDispatcherQueue
     {
         public int Count => throw new NotImplementedException();

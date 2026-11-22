@@ -13,6 +13,14 @@ public partial class WindowManagerIntegrationTest
     {
     }
 
+    [TestCleanup]
+    public void TestCleanup()
+    {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+    }
+
     private static IHost Setup()
     {
         var builder = Host.CreateDefaultBuilder(default);

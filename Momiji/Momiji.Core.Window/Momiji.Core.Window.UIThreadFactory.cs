@@ -56,52 +56,15 @@ internal sealed partial class UIThreadFactory : IUIThreadFactory, IDisposable, I
         if (disposing)
         {
             _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
-            var task = DisposeAsyncCore().AsTask();
 
             //TODO 仮処理
-            try
-            {
-                var retry = 5;
-                while (retry-- > 0)
-                {
-                    if (task.Wait(1000))
-                    {
-                        break;
-                    }
-                }
-
-                if (!task.IsCompleted)
-                {
-                    throw new InvalidOperationException("process task is not completed.");
-                }
-
-                task.GetAwaiter().GetResult();
-            }
-            catch (Exception e)
-            {
-                _logger.LogWithLine(LogLevel.Error, e, "failed.", Environment.CurrentManagedThreadId);
-                if (!_onUnhandledExceptionHandler.DoUnhandledException(e))
-                {
-                    _logger.LogWithLine(LogLevel.Error, e, "onUnhandledException failed.", Environment.CurrentManagedThreadId);
-                }
-            }
+            _onUnhandledExceptionHandler.DoDisposeAsyncCoreSyncWait(DisposeAsyncCore(), _logger);
         }
     }
 
     public async ValueTask DisposeAsync()
     {
-        try
-        {
-            await DisposeAsyncCore().ConfigureAwait(false);
-        }
-        catch (Exception e)
-        {
-            _logger.LogWithLine(LogLevel.Error, e, "failed.", Environment.CurrentManagedThreadId);
-            if (!_onUnhandledExceptionHandler.DoUnhandledException(e))
-            {
-                _logger.LogWithLine(LogLevel.Error, e, "onUnhandledException failed.", Environment.CurrentManagedThreadId);
-            }
-        }
+        await _onUnhandledExceptionHandler.DoDisposeAsyncCore(DisposeAsyncCore(), _logger);
 
         Dispose(false);
 

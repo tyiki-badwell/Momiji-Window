@@ -103,41 +103,15 @@ internal sealed partial class UIThread : IUIThreadInternal
         if (disposing)
         {
             _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
-            var task = DisposeAsyncCore().AsTask();
 
             //TODO 仮処理
-            try
-            {
-                var retry = 5;
-                while (retry-- > 0)
-                {
-                    if (task.Wait(1000))
-                    {
-                        break;
-                    }
-                }
-
-                if (!task.IsCompleted)
-                {
-                    throw new InvalidOperationException("process task is not completed.");
-                }
-
-                task.GetAwaiter().GetResult();
-            }
-            catch (Exception e)
-            {
-                _logger.LogWithLine(LogLevel.Error, e, "failed.", Environment.CurrentManagedThreadId);
-                if (!_onUnhandledExceptionHandler.DoUnhandledException(e))
-                {
-                    _logger.LogWithLine(LogLevel.Error, e, "onUnhandledException failed.", Environment.CurrentManagedThreadId);
-                }
-            }
+            _onUnhandledExceptionHandler.DoDisposeAsyncCoreSyncWait(DisposeAsyncCore(), _logger);
         }
     }
 
     public async ValueTask DisposeAsync()
     {
-        await DisposeAsyncCore().ConfigureAwait(false);
+        await _onUnhandledExceptionHandler.DoDisposeAsyncCore(DisposeAsyncCore(), _logger);
 
         Dispose(false);
 
@@ -152,19 +126,14 @@ internal sealed partial class UIThread : IUIThreadInternal
         {
             await CancelAsync();
         }
-        catch (Exception e)
+        finally
         {
-            _logger.LogWithLine(LogLevel.Error, e, "message loop error", Environment.CurrentManagedThreadId);
-            if (!_onUnhandledExceptionHandler.DoUnhandledException(e))
-            {
-                _logger.LogWithLine(LogLevel.Error, e, "onUnhandledException failed.", Environment.CurrentManagedThreadId);
-            }
+            _uiThreadActivator.OnInactivated -= OnInactivatedBridge;
+            _cts.Dispose();
+
+            _logger.LogWithLine(LogLevel.Trace, "DisposeAsync end", Environment.CurrentManagedThreadId);
         }
 
-        _uiThreadActivator.OnInactivated -= OnInactivatedBridge;
-        _cts.Dispose();
-
-        _logger.LogWithLine(LogLevel.Trace, "DisposeAsync end", Environment.CurrentManagedThreadId);
     }
 
     public async ValueTask CancelAsync()

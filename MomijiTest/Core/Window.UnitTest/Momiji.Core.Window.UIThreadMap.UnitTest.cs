@@ -12,6 +12,13 @@ public partial class UIThreadMapUnitTest
     {
     }
 
+    [TestCleanup]
+    public void TestCleanup()
+    {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+    }
     private static IHost Setup()
     {
         var builder = Host.CreateDefaultBuilder(default);
@@ -127,7 +134,12 @@ public partial class UIThreadMapUnitTest
         var task = Task.CompletedTask;
 
         map.Add(thread, task);
+        Assert.AreEqual(1, map.Count);
+        Assert.IsFalse(map.IsEmpty);
+
         map.Remove(thread);
+        Assert.AreEqual(0, map.Count);
+        Assert.IsTrue(map.IsEmpty);
     }
 
     [TestMethod]

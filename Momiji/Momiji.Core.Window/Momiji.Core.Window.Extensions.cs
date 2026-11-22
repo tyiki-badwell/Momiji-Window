@@ -1,5 +1,7 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Momiji.Internal.Window;
 
 namespace Momiji.Core.Window;
 
@@ -79,6 +81,67 @@ public static class IWindowExtensions
         );
     }
 }
+
+internal static class IOnUnhandledExceptionHandlerExtensions
+{
+    internal static void DoDisposeAsyncCoreSyncWait(
+        this IOnUnhandledExceptionHandler onUnhandledExceptionHandler,
+        ValueTask valueTask,
+        ILogger logger
+    )
+    {
+        var task = valueTask.AsTask();
+
+        try
+        {
+            var retry = 5;
+            while (retry-- > 0)
+            {
+                if (task.Wait(1000))
+                {
+                    break;
+                }
+            }
+
+            if (!task.IsCompleted)
+            {
+                throw new InvalidOperationException("process task is not completed.");
+            }
+
+            task.GetAwaiter().GetResult();
+        }
+        catch (Exception e)
+        {
+            logger.LogWithLine(LogLevel.Error, e, "failed.", Environment.CurrentManagedThreadId);
+            if (!onUnhandledExceptionHandler.DoUnhandledException(e))
+            {
+                logger.LogWithLine(LogLevel.Error, e, "onUnhandledException failed.", Environment.CurrentManagedThreadId);
+            }
+        }
+    }
+
+
+    internal static async ValueTask DoDisposeAsyncCore(
+        this IOnUnhandledExceptionHandler onUnhandledExceptionHandler,
+        ValueTask valueTask,
+        ILogger logger
+    )
+    {
+        try
+        {
+            await valueTask.ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+            logger.LogWithLine(LogLevel.Error, e, "failed.", Environment.CurrentManagedThreadId);
+            if (!onUnhandledExceptionHandler.DoUnhandledException(e))
+            {
+                logger.LogWithLine(LogLevel.Error, e, "onUnhandledException failed.", Environment.CurrentManagedThreadId);
+            }
+        }
+    }
+}
+
 
 public static class IHostBuilderExtensions
 {
