@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel;
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Momiji.Core.Buffer;
 using Momiji.Internal.Window;
@@ -15,7 +16,6 @@ internal interface IUIThreadInternal : IUIThread, IDisposable, IAsyncDisposable
 
 internal sealed partial class UIThread : IUIThreadInternal
 {
-    private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<UIThread> _logger;
     private bool _disposed;
 
@@ -23,6 +23,8 @@ internal sealed partial class UIThread : IUIThreadInternal
 
     private readonly TaskCompletionSource _tcs = new(TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly CancellationTokenSource _cts = new();
+
+
     private bool _run;
 
     private readonly IUIThreadActivator _uiThreadActivator;
@@ -30,17 +32,15 @@ internal sealed partial class UIThread : IUIThreadInternal
     private readonly IDispatcherQueueTaskExecutor _dispatcherQueueTaskExecutor;
     private readonly IDispatcherQueueSynchronizationContext _dispatcherQueueSynchronizationContext;
     private readonly IWindowManager _windowManager;
+    public IWindowManager WindowManager => _windowManager;
+
     private readonly IWindowProcedure _windowProcedure;
     private readonly IWindowFunction _windowFunction;
     private readonly IWindowMap _windowMap;
     private readonly IOnUnhandledExceptionHandler _onUnhandledExceptionHandler;
 
-    private readonly ManualResetEventSlim _queueEvent = new();
-    public WaitHandle WaitHandle => _queueEvent.WaitHandle;
-
-
     public UIThread(
-        ILoggerFactory loggerFactory,
+        ILogger<UIThread> logger,
         IUIThreadActivator uiThreadActivator,
         IDispatcherQueue dispatcherQueue,
         IDispatcherQueueTaskExecutor dispatcherQueueTaskExecutor,
@@ -52,7 +52,7 @@ internal sealed partial class UIThread : IUIThreadInternal
         IOnUnhandledExceptionHandler onUnhandledExceptionHandler
     )
     {
-        ArgumentNullException.ThrowIfNull(loggerFactory);
+        ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(uiThreadActivator);
         ArgumentNullException.ThrowIfNull(dispatcherQueue);
         ArgumentNullException.ThrowIfNull(dispatcherQueueTaskExecutor);
@@ -63,14 +63,12 @@ internal sealed partial class UIThread : IUIThreadInternal
         ArgumentNullException.ThrowIfNull(windowMap);
         ArgumentNullException.ThrowIfNull(onUnhandledExceptionHandler);
 
-        _loggerFactory = loggerFactory;
-        _logger = _loggerFactory.CreateLogger<UIThread>();
+        _logger = logger;
 
         _uiThreadActivator = uiThreadActivator;
         _uiThreadActivator.OnInactivated += OnInactivatedBridge;
 
         _dispatcherQueue = dispatcherQueue;
-        _dispatcherQueue.OnEnqueue += OnEnqueue;
         _dispatcherQueueSynchronizationContext = dispatcherQueueSynchronizationContext;
 
         _dispatcherQueueTaskExecutor = dispatcherQueueTaskExecutor;
@@ -105,48 +103,15 @@ internal sealed partial class UIThread : IUIThreadInternal
         if (disposing)
         {
             _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
-            var task = DisposeAsyncCore().AsTask();
 
             //TODO 仮処理
-            try
-            {
-                var retry = 5;
-                while (retry-- > 0)
-                {
-                    if (task.Wait(1000))
-                    {
-                        break;
-                    }
-                }
-
-                if (!task.IsCompleted)
-                {
-                    throw new InvalidOperationException("process task is not completed.");
-                }
-
-                task.GetAwaiter().GetResult();
-            }
-            catch (Exception e)
-            {
-                _logger.LogWithLine(LogLevel.Error, e, "failed.", Environment.CurrentManagedThreadId);
-                if (!_onUnhandledExceptionHandler.DoUnhandledException(e))
-                {
-                    _logger.LogWithLine(LogLevel.Error, e, "onUnhandledException failed.", Environment.CurrentManagedThreadId);
-                }
-            }
-
-            _uiThreadActivator.OnInactivated -= OnInactivatedBridge;
-            _cts.Dispose();
-
-            _dispatcherQueue.OnEnqueue -= OnEnqueue;
-            _queueEvent.Dispose();
+            _onUnhandledExceptionHandler.DoDisposeAsyncCoreSyncWait(DisposeAsyncCore(), _logger);
         }
-
     }
 
     public async ValueTask DisposeAsync()
     {
-        await DisposeAsyncCore().ConfigureAwait(false);
+        await _onUnhandledExceptionHandler.DoDisposeAsyncCore(DisposeAsyncCore(), _logger);
 
         Dispose(false);
 
@@ -157,11 +122,18 @@ internal sealed partial class UIThread : IUIThreadInternal
     {
         _logger.LogWithLine(LogLevel.Trace, "DisposeAsync start", Environment.CurrentManagedThreadId);
 
-        await CancelAsync();
+        try
+        {
+            await CancelAsync();
+        }
+        finally
+        {
+            _uiThreadActivator.OnInactivated -= OnInactivatedBridge;
+            _cts.Dispose();
 
-        _cts.Dispose();
+            _logger.LogWithLine(LogLevel.Trace, "DisposeAsync end", Environment.CurrentManagedThreadId);
+        }
 
-        _logger.LogWithLine(LogLevel.Trace, "DisposeAsync end", Environment.CurrentManagedThreadId);
     }
 
     public async ValueTask CancelAsync()
@@ -178,18 +150,10 @@ internal sealed partial class UIThread : IUIThreadInternal
 
         if (_run)
         {
-            try
-            {
-                //ループの終了を待つ
-                _logger.LogWithLine(LogLevel.Trace, "await task start", Environment.CurrentManagedThreadId);
-                await _tcs.Task;
-                _logger.LogWithLine(LogLevel.Trace, "await task end", Environment.CurrentManagedThreadId);
-            }
-            catch (Exception e)
-            {
-                //TODO エラーになるケースがあるか？
-                _logger.LogWithLine(LogLevel.Error, e, "message loop error", Environment.CurrentManagedThreadId);
-            }
+            //ループの終了を待つ
+            _logger.LogWithLine(LogLevel.Trace, "await task start", Environment.CurrentManagedThreadId);
+            await _tcs.Task;
+            _logger.LogWithLine(LogLevel.Trace, "await task end", Environment.CurrentManagedThreadId);
         }
         else
         {
@@ -202,17 +166,10 @@ internal sealed partial class UIThread : IUIThreadInternal
         _logger.LogWithLine(LogLevel.Trace, "OnInactivated", Environment.CurrentManagedThreadId);
         OnInactivated?.Invoke();
     }
-
-    private void OnEnqueue()
-    {
-        _logger.LogWithLine(LogLevel.Trace, "OnEnqueue", Environment.CurrentManagedThreadId);
-        _queueEvent.Set();
-    }
-
-    public async ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindowManager, TResult> func)
+    public async ValueTask<TResult> EnqueueAsync<TResult>(Func<TResult> func)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return await _dispatcherQueue.EnqueueAsync(() => func(_windowManager));
+        return await _dispatcherQueue.EnqueueAsync(func);
     }
 
     public void RunMessageLoop(
@@ -243,16 +200,15 @@ internal sealed partial class UIThread : IUIThreadInternal
         }
         catch (Exception e)
         {
-            //TODO エラーになるケースがあるか？
+            _logger.LogWithLine(LogLevel.Error, e, "message loop error", Environment.CurrentManagedThreadId);
             _tcs.SetException(e);
         }
         finally
         {
+            _logger.LogWithLine(LogLevel.Information, "end message loop.", Environment.CurrentManagedThreadId);
             _tcs.TrySetResult();
             _run = false;
         }
-
-        _logger.LogWithLine(LogLevel.Information, "end message loop.", Environment.CurrentManagedThreadId);
     }
 
     private void RunMessageLoopMain(
@@ -260,26 +216,20 @@ internal sealed partial class UIThread : IUIThreadInternal
     )
     {
         using var waitHandlesPin = new PinnedBuffer<nint[]>([
-            _queueEvent.WaitHandle.SafeWaitHandle.DangerousGetHandle(),
+            _dispatcherQueue.WaitHandle.SafeWaitHandle.DangerousGetHandle(),
             ct.WaitHandle.SafeWaitHandle.DangerousGetHandle()
         ]);
 
         using var switchContext = new DispatcherQueueSynchronizationContextScope(_dispatcherQueueSynchronizationContext, _logger);
 
-        var forceCancel = false;
         var cancelled = false;
+        var forceCancelled = false;
         var handleCount = (uint)waitHandlesPin.Target.Length;
+
+        var closeTimeoutCounter = new Stopwatch();
 
         while (true)
         {
-            if (forceCancel)
-            {
-                _logger.LogWithLine(LogLevel.Information, "force canceled.", Environment.CurrentManagedThreadId);
-                _windowMap.ForceClose();
-
-                forceCancel = false;
-            }
-
             if (cancelled)
             {
                 if (_windowMap.IsEmpty)
@@ -287,9 +237,25 @@ internal sealed partial class UIThread : IUIThreadInternal
                     _logger.LogWithLine(LogLevel.Information, "all closed.", Environment.CurrentManagedThreadId);
                     break;
                 }
-                else
+
+                var elapsed = closeTimeoutCounter.Elapsed.TotalSeconds;
+                if (_logger.IsEnabled(LogLevel.Information))
                 {
-                    _logger.LogWithLine(LogLevel.Information, "wait close.", Environment.CurrentManagedThreadId);
+                    _logger.LogWithLine(LogLevel.Information, $"wait close. elapsed: {elapsed} sec", Environment.CurrentManagedThreadId);
+                }
+
+                // 10秒以内にクローズされなければ、ループを終わらせる
+                //TODO 設定にする
+                if(elapsed > 10)
+                {
+                    _logger.LogWithLine(LogLevel.Warning, "wait close timeout.", Environment.CurrentManagedThreadId);
+                    break;
+                }
+                else if (!forceCancelled && elapsed > 5)
+                {
+                    _logger.LogWithLine(LogLevel.Warning, "forceCancel", Environment.CurrentManagedThreadId);
+                    forceCancelled = true;
+                    _windowMap.ForceClose();
                 }
             }
             else if (ct.IsCancellationRequested)
@@ -299,24 +265,7 @@ internal sealed partial class UIThread : IUIThreadInternal
                 _logger.LogWithLine(LogLevel.Information, "canceled.", Environment.CurrentManagedThreadId);
                 _windowMap.CloseAll();
 
-                // 10秒以内にクローズされなければ、ループを終わらせる
-                //TODO 設定にする
-                var _ =
-                    Task.Delay(10000, CancellationToken.None)
-                    .ContinueWith(
-                        (task) => {
-                            if (_windowMap.IsEmpty)
-                            {
-                                _logger.LogWithLine(LogLevel.Trace, "windowMap.IsEmpty", Environment.CurrentManagedThreadId);
-                            }
-                            else
-                            {
-                                _logger.LogWithLine(LogLevel.Warning, "forceCancel", Environment.CurrentManagedThreadId);
-                                forceCancel = true;
-                            }
-                        },
-                        TaskScheduler.Default
-                    );
+                closeTimeoutCounter.Start();
             }
 
             {
@@ -342,7 +291,7 @@ internal sealed partial class UIThread : IUIThreadInternal
                     //タスクキューのディスパッチ
                     //TODO RTWQなどに置き換えできる？
                     _logger.LogWithLine(LogLevel.Trace, "MsgWaitForMultipleObjectsEx comes queue event.", Environment.CurrentManagedThreadId);
-                    _queueEvent.Reset();
+                    _dispatcherQueue.Reset();
                     _dispatcherQueueTaskExecutor.DispatchQueue();
                     continue;
                 }
@@ -362,6 +311,5 @@ internal sealed partial class UIThread : IUIThreadInternal
             }
         }
     }
-
 
 }

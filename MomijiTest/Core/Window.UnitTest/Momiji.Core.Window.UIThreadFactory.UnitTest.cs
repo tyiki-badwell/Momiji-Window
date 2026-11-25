@@ -12,17 +12,28 @@ public partial class UIThreadFactoryTest
     {
     }
 
+    [TestCleanup]
+    public void TestCleanup()
+    {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+    }
+
     internal class UIThreadDummy : IUIThreadInternal
     {
         public UIThreadDummy()
         {
         }
+
+        public IWindowManager WindowManager => throw new NotImplementedException();
+
         public event IUIThread.InactivatedEventHandler? OnInactivated;
 
         public ValueTask CancelAsync() => ValueTask.CompletedTask;
         public void Dispose() => throw new NotImplementedException();
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-        public ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindowManager, TResult> item) => throw new NotImplementedException();
+        public ValueTask<TResult> EnqueueAsync<TResult>(Func<TResult> item) => throw new NotImplementedException();
         public void RunMessageLoop(TaskCompletionSource<IUIThread> startTcs, CancellationToken ct = default) {
             startTcs.TrySetResult(this);
         }
@@ -33,16 +44,67 @@ public partial class UIThreadFactoryTest
         public UIThreadDummyRunMessageLoopError()
         {
         }
+
+        public IWindowManager WindowManager => throw new NotImplementedException();
+
         public event IUIThread.InactivatedEventHandler? OnInactivated;
 
         public ValueTask CancelAsync() => ValueTask.CompletedTask;
         public void Dispose() => throw new NotImplementedException();
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-        public ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindowManager, TResult> item) => throw new NotImplementedException();
+        public ValueTask<TResult> EnqueueAsync<TResult>(Func<TResult> item) => throw new NotImplementedException();
+
         public void RunMessageLoop(TaskCompletionSource<IUIThread> startTcs, CancellationToken ct = default)
         {
             throw new Exception("ERROR");
         }
+    }
+
+    internal class UIThreadDummyRunMessageStartError : IUIThreadInternal
+    {
+        public UIThreadDummyRunMessageStartError()
+        {
+        }
+
+        public IWindowManager WindowManager => throw new NotImplementedException();
+
+        public event IUIThread.InactivatedEventHandler? OnInactivated;
+
+        public ValueTask CancelAsync() => ValueTask.CompletedTask;
+        public void Dispose() => throw new NotImplementedException();
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public ValueTask<TResult> EnqueueAsync<TResult>(Func<TResult> item) => throw new NotImplementedException();
+
+        public void RunMessageLoop(TaskCompletionSource<IUIThread> startTcs, CancellationToken ct = default)
+        {
+            startTcs.SetException(new Exception("ERROR"));
+        }
+    }
+
+    internal class UIThreadMapDummyError : IUIThreadMap
+    {
+        public bool IsEmpty => throw new NotImplementedException();
+
+        public int Count => throw new NotImplementedException();
+
+        public void Add(IUIThread uiThread, Task task)
+        {
+        }
+        public ValueTask CancelAllAsync() => throw new NotImplementedException();
+        public void Remove(IUIThread uiThread) => throw new NotImplementedException();
+    }
+
+    internal class UIThreadMapDummyEndless : IUIThreadMap
+    {
+        public bool IsEmpty => false;
+
+        public int Count => int.MaxValue;
+
+        public void Add(IUIThread uiThread, Task task)
+        {
+        }
+        public ValueTask CancelAllAsync() => ValueTask.CompletedTask;
+        public void Remove(IUIThread uiThread) => throw new NotImplementedException();
     }
 
     private static IHost Setup()
@@ -67,10 +129,9 @@ public partial class UIThreadFactoryTest
     public async Task TestConstructor()
     {
         using var host = Setup();
-        var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
 
         using var threadFactory = new UIThreadFactory(
-            loggerFactory.CreateLogger<UIThreadFactory>(),
+            host.Services.GetRequiredService<ILogger<UIThreadFactory>>(),
             host.Services.GetRequiredService<IUIThreadMap>(),
             host.Services.GetRequiredService<IOnUnhandledExceptionHandler>(),
             host.Services.GetRequiredService<IServiceScopeFactory>()
@@ -78,14 +139,64 @@ public partial class UIThreadFactoryTest
     }
 
     [TestMethod]
+    public async Task TestDisposeAsync()
+    {
+        using var host = Setup();
+
+        await using var threadFactory = new UIThreadFactory(
+            host.Services.GetRequiredService<ILogger<UIThreadFactory>>(),
+            host.Services.GetRequiredService<IUIThreadMap>(),
+            host.Services.GetRequiredService<IOnUnhandledExceptionHandler>(),
+            host.Services.GetRequiredService<IServiceScopeFactory>()
+        );
+    }
+
+    [TestMethod]
+    public async Task TestFinalizer()
+    {
+        {
+            using var host = Setup();
+
+            void Run()
+            {
+                var _ = new UIThreadFactory(
+                    host.Services.GetRequiredService<ILogger<UIThreadFactory>>(),
+                    host.Services.GetRequiredService<IUIThreadMap>(),
+                    host.Services.GetRequiredService<IOnUnhandledExceptionHandler>(),
+                    host.Services.GetRequiredService<IServiceScopeFactory>()
+                );
+            }
+
+            Run();
+        }
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+    }
+
+    [TestMethod]
+    public async Task TestDoubleDestruct()
+    {
+        using var host = Setup();
+
+        var threadFactory = new UIThreadFactory(
+            host.Services.GetRequiredService<ILogger<UIThreadFactory>>(),
+            host.Services.GetRequiredService<IUIThreadMap>(),
+            host.Services.GetRequiredService<IOnUnhandledExceptionHandler>(),
+            host.Services.GetRequiredService<IServiceScopeFactory>()
+        );
+        threadFactory.Dispose();
+        threadFactory.Dispose();
+    }
+
+    [TestMethod]
     public async Task TestStartAsync()
     {
         using var host = Setup();
-        var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
-        var logger = loggerFactory.CreateLogger<UIThreadFactoryTest>();
 
         using var threadFactory = new UIThreadFactory(
-            loggerFactory.CreateLogger<UIThreadFactory>(),
+            host.Services.GetRequiredService<ILogger<UIThreadFactory>>(),
             host.Services.GetRequiredService<IUIThreadMap>(),
             host.Services.GetRequiredService<IOnUnhandledExceptionHandler>(),
             host.Services.GetRequiredService<IServiceScopeFactory>()
@@ -104,8 +215,26 @@ public partial class UIThreadFactoryTest
         {
             services.AddSingleton<IOnUnhandledExceptionHandler, OnUnhandledExceptionHandler>();
 
-            services.AddTransient<IUIThreadMap, UIThreadMap>();
+            services.AddTransient<IUIThreadMap, UIThreadMapDummyError>();
             services.AddTransient<IUIThreadInternal, UIThreadDummyRunMessageLoopError>();
+
+        });
+
+        return builder.Build();
+    }
+
+    private static IHost SetupForStartError()
+    {
+        var builder = Host.CreateDefaultBuilder(default);
+
+        builder.UseContentRoot(AppContext.BaseDirectory);
+        builder.UseConsoleLifetime();
+        builder.ConfigureServices((hostContext, services) =>
+        {
+            services.AddSingleton<IOnUnhandledExceptionHandler, OnUnhandledExceptionHandler>();
+
+            services.AddTransient<IUIThreadMap, UIThreadMapDummyError>();
+            services.AddTransient<IUIThreadInternal, UIThreadDummyRunMessageStartError>();
 
         });
 
@@ -116,11 +245,9 @@ public partial class UIThreadFactoryTest
     public async Task TestStartAsyncError()
     {
         using var host = SetupForError();
-        var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
-        var logger = loggerFactory.CreateLogger<UIThreadFactoryTest>();
 
         using var threadFactory = new UIThreadFactory(
-            loggerFactory.CreateLogger<UIThreadFactory>(),
+            host.Services.GetRequiredService<ILogger<UIThreadFactory>>(),
             host.Services.GetRequiredService<IUIThreadMap>(),
             host.Services.GetRequiredService<IOnUnhandledExceptionHandler>(),
             host.Services.GetRequiredService<IServiceScopeFactory>()
@@ -138,4 +265,79 @@ public partial class UIThreadFactoryTest
         }
         Assert.AreEqual("ERROR", e?.Message);
     }
+
+    [TestMethod]
+    public async Task TestStartAsyncStartError()
+    {
+        using var host = SetupForStartError();
+
+        using var threadFactory = new UIThreadFactory(
+            host.Services.GetRequiredService<ILogger<UIThreadFactory>>(),
+            host.Services.GetRequiredService<IUIThreadMap>(),
+            host.Services.GetRequiredService<IOnUnhandledExceptionHandler>(),
+            host.Services.GetRequiredService<IServiceScopeFactory>()
+        );
+
+        Exception? e = default;
+        try
+        {
+            var thread = await threadFactory.StartAsync();
+            Assert.Fail();
+        }
+        catch (Exception e_)
+        {
+            e = e_;
+        }
+        Assert.AreEqual("ERROR", e?.Message);
+    }
+
+    [TestMethod]
+    public async Task TestDisposeAsyncError()
+    {
+        using var host = SetupForError();
+
+        var threadFactory = new UIThreadFactory(
+            host.Services.GetRequiredService<ILogger<UIThreadFactory>>(),
+            host.Services.GetRequiredService<IUIThreadMap>(),
+            host.Services.GetRequiredService<IOnUnhandledExceptionHandler>(),
+            host.Services.GetRequiredService<IServiceScopeFactory>()
+        );
+
+        await threadFactory.DisposeAsync();
+    }
+
+    private static IHost SetupForEndless()
+    {
+        var builder = Host.CreateDefaultBuilder(default);
+
+        builder.UseContentRoot(AppContext.BaseDirectory);
+        builder.UseConsoleLifetime();
+        builder.ConfigureServices((hostContext, services) =>
+        {
+            services.AddSingleton<IOnUnhandledExceptionHandler, OnUnhandledExceptionHandler>();
+
+            services.AddTransient<IUIThreadMap, UIThreadMapDummyEndless>();
+            services.AddTransient<IUIThreadInternal, UIThreadDummyRunMessageLoopError>();
+
+        });
+
+        return builder.Build();
+    }
+
+    [TestMethod]
+    public async Task TestDisposeEndlessTimeout()
+    {
+        using var host = SetupForEndless();
+
+        var threadFactory = new UIThreadFactory(
+            host.Services.GetRequiredService<ILogger<UIThreadFactory>>(),
+            host.Services.GetRequiredService<IUIThreadMap>(),
+            host.Services.GetRequiredService<IOnUnhandledExceptionHandler>(),
+            host.Services.GetRequiredService<IServiceScopeFactory>()
+        );
+
+        threadFactory.Dispose();
+    }
+
+
 }

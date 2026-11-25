@@ -16,6 +16,14 @@ public partial class WindowManagerUnitTest
     {
     }
 
+    [TestCleanup]
+    public void TestCleanup()
+    {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+    }
+
     private static IHost Setup()
     {
         var builder = Host.CreateDefaultBuilder(default);
@@ -30,6 +38,7 @@ public partial class WindowManagerUnitTest
             services.AddSingleton<IDispatcherQueueSynchronizationContext, DummyDispatcherQueueSynchronizationContext>();
             services.AddSingleton<IWindowProcedure, DummyWindowProcedure>();
             services.AddSingleton<IWindowFunction, DummyWindowFunction>();
+            services.AddSingleton<IWindowFactory, WindowFactory>();
             services.AddSingleton<IWindowClass, DummyWindowClass>();
             services.AddSingleton<IWindowClassManager, DummyWindowClassManager>();
             services.AddSingleton<IWindowManager, WindowManager>();
@@ -47,12 +56,12 @@ public partial class WindowManagerUnitTest
 
         public int Count => throw new NotImplementedException();
 
-        public event IDispatcherQueue.EnqueueHandler? OnEnqueue;
-
         public void Dispatch(SendOrPostCallback callback, object? param) => throw new NotImplementedException();
-#pragma warning disable CS1998 // 非同期メソッドは、'await' 演算子がないため、同期的に実行されます
-        public async ValueTask<TResult> EnqueueAsync<TResult>(Func<TResult> func) => func();
-#pragma warning restore CS1998 // 非同期メソッドは、'await' 演算子がないため、同期的に実行されます
+        public async ValueTask<TResult> EnqueueAsync<TResult>(Func<TResult> func)
+        {
+            await Task.Yield();
+            return func();
+        }
         public void DispatchQueue() => throw new NotImplementedException();
         public void Dispose()
         {
@@ -62,6 +71,7 @@ public partial class WindowManagerUnitTest
         public void Enqueue(Action action) => throw new NotImplementedException();
         public void ResetEvent() => throw new NotImplementedException();
         public bool TryDequeue([MaybeNullWhen(false)] out object item) => throw new NotImplementedException();
+        public void Reset() => throw new NotImplementedException();
     }
 
     private partial class DummyWindowProcedure : IWindowProcedure

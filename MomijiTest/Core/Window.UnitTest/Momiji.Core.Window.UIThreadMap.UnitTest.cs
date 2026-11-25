@@ -12,6 +12,13 @@ public partial class UIThreadMapUnitTest
     {
     }
 
+    [TestCleanup]
+    public void TestCleanup()
+    {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+    }
     private static IHost Setup()
     {
         var builder = Host.CreateDefaultBuilder(default);
@@ -96,12 +103,15 @@ public partial class UIThreadMapUnitTest
 
     internal class UIThreadDummy : IUIThreadInternal
     {
+        public IWindowManager WindowManager => throw new NotImplementedException();
+
         public event IUIThread.InactivatedEventHandler? OnInactivated;
 
         public ValueTask CancelAsync() => ValueTask.CompletedTask;
         public void Dispose() => throw new NotImplementedException();
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-        public ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindowManager, TResult> item) => throw new NotImplementedException();
+        public ValueTask<TResult> EnqueueAsync<TResult>(Func<TResult> item) => throw new NotImplementedException();
+
         public void RunMessageLoop(TaskCompletionSource<IUIThread> startTcs, CancellationToken ct = default)
         {
             startTcs.TrySetResult(this);
@@ -124,7 +134,12 @@ public partial class UIThreadMapUnitTest
         var task = Task.CompletedTask;
 
         map.Add(thread, task);
+        Assert.AreEqual(1, map.Count);
+        Assert.IsFalse(map.IsEmpty);
+
         map.Remove(thread);
+        Assert.AreEqual(0, map.Count);
+        Assert.IsTrue(map.IsEmpty);
     }
 
     [TestMethod]
@@ -148,12 +163,14 @@ public partial class UIThreadMapUnitTest
 
     internal class UIThreadDummyCancelAsyncError : IUIThreadInternal
     {
+        public IWindowManager WindowManager => throw new NotImplementedException();
+
         public event IUIThread.InactivatedEventHandler? OnInactivated;
 
         public ValueTask CancelAsync() => ValueTask.FromException(new Exception("ERROR"));
         public void Dispose() => throw new NotImplementedException();
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-        public ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindowManager, TResult> item) => throw new NotImplementedException();
+        public ValueTask<TResult> EnqueueAsync<TResult>(Func<TResult> item) => throw new NotImplementedException();
         public void RunMessageLoop(TaskCompletionSource<IUIThread> startTcs, CancellationToken ct = default)
         {
             startTcs.TrySetResult(this);
@@ -162,6 +179,8 @@ public partial class UIThreadMapUnitTest
 
     internal class UIThreadDummyCancelAsyncEndless : IUIThreadInternal
     {
+        public IWindowManager WindowManager => throw new NotImplementedException();
+
         public event IUIThread.InactivatedEventHandler? OnInactivated;
 
         public ValueTask CancelAsync()
@@ -170,7 +189,7 @@ public partial class UIThreadMapUnitTest
         }
         public void Dispose() => throw new NotImplementedException();
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-        public ValueTask<TResult> EnqueueAsync<TResult>(Func<IWindowManager, TResult> item) => throw new NotImplementedException();
+        public ValueTask<TResult> EnqueueAsync<TResult>(Func<TResult> item) => throw new NotImplementedException();
         public void RunMessageLoop(TaskCompletionSource<IUIThread> startTcs, CancellationToken ct = default)
         {
             startTcs.TrySetResult(this);

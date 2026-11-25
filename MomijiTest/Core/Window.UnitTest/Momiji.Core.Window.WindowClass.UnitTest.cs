@@ -14,6 +14,13 @@ public partial class WindowClassUnitTest
     {
     }
 
+    [TestCleanup]
+    public void TestCleanup()
+    {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+    }
     private static IHost Setup()
     {
         var builder = Host.CreateDefaultBuilder(default);
@@ -40,7 +47,7 @@ public partial class WindowClassUnitTest
         var procedure = host.Services.GetRequiredService<IWindowProcedure>();
 
         using var clazz = new WindowClass(
-            loggerFactory.CreateLogger<WindowClass>(),
+            loggerFactory,
             procedure
         );
     }
@@ -57,7 +64,7 @@ public partial class WindowClassUnitTest
                 var procedure = host.Services.GetRequiredService<IWindowProcedure>();
 
                 var _ = new WindowClass(
-                    loggerFactory.CreateLogger<WindowClass>(),
+                    loggerFactory,
                     procedure
                 );
             }
@@ -78,7 +85,7 @@ public partial class WindowClassUnitTest
         var procedure = host.Services.GetRequiredService<IWindowProcedure>();
 
         var clazz = new WindowClass(
-            loggerFactory.CreateLogger<WindowClass>(),
+            loggerFactory,
             procedure
         );
         clazz.Dispose();
@@ -93,7 +100,7 @@ public partial class WindowClassUnitTest
         var procedure = host.Services.GetRequiredService<IWindowProcedure>();
 
         using var clazz = new WindowClass(
-            loggerFactory.CreateLogger<WindowClass>(),
+            loggerFactory,
             procedure
         );
 
@@ -113,7 +120,7 @@ public partial class WindowClassUnitTest
         var procedure = host.Services.GetRequiredService<IWindowProcedure>();
 
         using var clazz = new WindowClass(
-            loggerFactory.CreateLogger<WindowClass>(),
+            loggerFactory,
             procedure
         );
 
@@ -128,7 +135,7 @@ public partial class WindowClassUnitTest
         var procedure = host.Services.GetRequiredService<IWindowProcedure>();
 
         using var clazz = new WindowClass(
-            loggerFactory.CreateLogger<WindowClass>(),
+            loggerFactory,
             procedure
         );
 
@@ -196,7 +203,7 @@ public partial class WindowClassUnitTest
         var procedure = host.Services.GetRequiredService<IWindowProcedure>();
 
         using var clazz = new WindowClass(
-            loggerFactory.CreateLogger<WindowClass>(),
+            loggerFactory,
             procedure
         );
 

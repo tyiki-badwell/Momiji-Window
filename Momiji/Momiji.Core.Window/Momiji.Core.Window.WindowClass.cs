@@ -42,14 +42,14 @@ internal sealed partial class WindowClass : IWindowClass
     public nint HInstance => _windowClass.hInstance;
 
     public WindowClass(
-        ILogger<WindowClass> logger,
+        ILoggerFactory loggerFactory,
         IWindowProcedure windowProcedure
     )
     {
-        ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(loggerFactory);
         ArgumentNullException.ThrowIfNull(windowProcedure);
 
-        _logger = logger;
+        _logger = loggerFactory.CreateLogger<WindowClass>();
         _windowProcedure = windowProcedure;
     }
 

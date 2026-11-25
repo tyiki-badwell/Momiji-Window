@@ -62,41 +62,16 @@ internal sealed partial class UIThreadMap : IUIThreadMap, IDisposable, IAsyncDis
         if (disposing)
         {
             _logger.LogWithLine(LogLevel.Information, "disposing", Environment.CurrentManagedThreadId);
-            var task = DisposeAsyncCore().AsTask();
 
             //TODO 仮処理
-            try
-            {
-                var retry = 5;
-                while (retry-- > 0)
-                {
-                    if (task.Wait(1000))
-                    {
-                        break;
-                    }
-                }
+            _onUnhandledExceptionHandler.DoDisposeAsyncCoreSyncWait(DisposeAsyncCore(), _logger);
 
-                if (!task.IsCompleted)
-                {
-                    throw new InvalidOperationException("process task is not completed.");
-                }
-
-                task.GetAwaiter().GetResult();
-            }
-            catch (Exception e)
-            {
-                _logger.LogWithLine(LogLevel.Error, e, "failed.", Environment.CurrentManagedThreadId);
-                if (!_onUnhandledExceptionHandler.DoUnhandledException(e))
-                {
-                    _logger.LogWithLine(LogLevel.Error, e, "onUnhandledException failed.", Environment.CurrentManagedThreadId);
-                }
-            }
         }
     }
 
     public async ValueTask DisposeAsync()
     {
-        await DisposeAsyncCore().ConfigureAwait(false);
+        await _onUnhandledExceptionHandler.DoDisposeAsyncCore(DisposeAsyncCore(), _logger);
 
         Dispose(false);
 
@@ -137,9 +112,6 @@ internal sealed partial class UIThreadMap : IUIThreadMap, IDisposable, IAsyncDis
         _logger.LogWithLine(LogLevel.Trace, "when all start", Environment.CurrentManagedThreadId);
         await Task.WhenAll(tasks).ConfigureAwait(false);
         _logger.LogWithLine(LogLevel.Trace, "when all end", Environment.CurrentManagedThreadId);
-
-        //_logger.LogWithLine(LogLevel.Trace, "clear", Environment.CurrentManagedThreadId);
-        //_uiThreadMap.Clear();
     }
 
 }

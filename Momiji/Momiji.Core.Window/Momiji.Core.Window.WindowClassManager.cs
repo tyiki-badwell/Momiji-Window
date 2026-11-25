@@ -16,8 +16,9 @@ internal interface IWindowClassManager : IDisposable
 
 internal sealed partial class WindowClassManager : IWindowClassManager
 {
+    private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<WindowClassManager> _logger;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IWindowProcedure _windowProcedure;
     private bool _disposed;
 
     private sealed record WindowClassMapKey(
@@ -25,18 +26,19 @@ internal sealed partial class WindowClassManager : IWindowClassManager
         User32.WNDCLASSEX.CS ClassStyle
     );
 
-    private readonly ConcurrentDictionary<WindowClassMapKey, IWindowClass> _windowClassMap = [];
+    private readonly ConcurrentDictionary<WindowClassMapKey, Lazy<IWindowClass>> _windowClassMap = [];
 
     public WindowClassManager(
-        ILogger<WindowClassManager> logger,
-        IServiceProvider serviceProvider
+        ILoggerFactory loggerFactory,
+        IWindowProcedure windowProcedure
     )
     {
-        ArgumentNullException.ThrowIfNull(logger);
-        ArgumentNullException.ThrowIfNull(serviceProvider);
+        ArgumentNullException.ThrowIfNull(loggerFactory);
+        ArgumentNullException.ThrowIfNull(windowProcedure);
 
-        _logger = logger;
-        _serviceProvider = serviceProvider;
+        _loggerFactory = loggerFactory;
+        _logger = _loggerFactory.CreateLogger<WindowClassManager>();
+        _windowProcedure = windowProcedure;
     }
 
     ~WindowClassManager()
@@ -65,7 +67,7 @@ internal sealed partial class WindowClassManager : IWindowClassManager
             foreach (var windowClass in _windowClassMap.Values)
             {
                 //クローズしていないウインドウが残っていると失敗する
-                windowClass.Dispose();
+                windowClass.Value.Dispose();
             }
             _windowClassMap.Clear();
         }
@@ -82,11 +84,11 @@ internal sealed partial class WindowClassManager : IWindowClassManager
         var queryClassStyle = classStyle;
 
         var windowClass = _windowClassMap.GetOrAdd(new(queryClassName, queryClassStyle), (key) => {
-            var windowClass = _serviceProvider.GetRequiredService<IWindowClass>();
+            var windowClass = new Lazy<IWindowClass>(() => new WindowClass(_loggerFactory, _windowProcedure), LazyThreadSafetyMode.PublicationOnly);
 
             try
             {
-                windowClass.Initialize(key.ClassStyle, key.ClassName);
+                windowClass.Value.Initialize(key.ClassStyle, key.ClassName);
             }
             catch (Exception e)
             {
@@ -97,6 +99,6 @@ internal sealed partial class WindowClassManager : IWindowClassManager
             return windowClass;
         });
 
-        return windowClass;
+        return windowClass.Value;
     }
 }
