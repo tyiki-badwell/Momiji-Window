@@ -94,7 +94,7 @@ public partial class WindowClassIntegrationTest
         var proc = host.Services.GetRequiredService<IWindowProcedure>();
 
         using var clazz = new WindowClass(
-            loggerFactory.CreateLogger<WindowClass>(),
+            loggerFactory,
             proc
         );
 
@@ -109,7 +109,7 @@ public partial class WindowClassIntegrationTest
             logger.LogInformation($"Åöthread:[{Environment.CurrentManagedThreadId:X}] OnThreadMessage {message}");
         };
 
-        using var windowClass = new WindowClass(loggerFactory.CreateLogger<WindowClass>(), proc);
+        using var windowClass = new WindowClass(loggerFactory, proc);
 
         try
         {

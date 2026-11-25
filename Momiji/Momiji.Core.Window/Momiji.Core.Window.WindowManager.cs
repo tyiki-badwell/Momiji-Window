@@ -265,6 +265,7 @@ internal sealed partial class WindowManager : IWindowManager, IDisposable
                         }
                         catch (Exception e)
                         {
+                            window.Dispose();
                             _logger.LogWithLine(LogLevel.Error, e, "Initialize failed.", Environment.CurrentManagedThreadId);
                             throw;
                         }
@@ -370,6 +371,9 @@ internal sealed partial class WindowManager : IWindowManager, IDisposable
 
     private void OnWM_NCDESTROY_After(IWindowInternal window)
     {
+        //destory済としてマーク
+        //TODO 他の表現にする
+        //window.HWND = User32.HWND.None;
         _windowMap.Remove(window);
     }
 

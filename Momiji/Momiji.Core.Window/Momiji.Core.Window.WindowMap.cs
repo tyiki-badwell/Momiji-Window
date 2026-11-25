@@ -182,7 +182,6 @@ internal sealed partial class WindowMap : IWindowMap, IDisposable
         {
             _logger.LogWithHWnd(LogLevel.Information, "remove window map", window_.HWND, Environment.CurrentManagedThreadId);
             window_.Dispose();
-            //window_.HWND = User32.HWND.None;
         }
         else
         {
